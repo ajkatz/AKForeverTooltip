@@ -1,5 +1,5 @@
 -- /ftt diag: a report of what this client did with our two hooks, saved with the settings
--- (ForeverTooltipDB.diag) so that it can be read from the SavedVariables file after a /reload or logout.
+-- (AKForeverTooltipDB.diag) so that it can be read from the SavedVariables file after a /reload or logout.
 -- Read-only on Blizzard's side; nothing here looks at a value before ns.IsSecret cleared it.
 local _, ns = ...
 

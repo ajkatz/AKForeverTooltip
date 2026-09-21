@@ -1,5 +1,5 @@
--- ForeverTooltip core: namespace, safe calls, event dispatch, message bus, saved variables,
--- session log and slash commands. (Same skeleton as ForeverActionBars.)
+-- AKForeverTooltip core: namespace, safe calls, event dispatch, message bus, saved variables,
+-- session log and slash commands. (Same skeleton as AKForeverActionBars.)
 --
 -- House rules for this addon (see Tooltip.lua for the why):
 --   * the game tooltip is never cleared, re-owned, shown or hidden from here (SetOwner, ClearLines, Show,
@@ -15,7 +15,7 @@ ns.name = ADDON_NAME
 local getMetadata = (C_AddOns and C_AddOns.GetAddOnMetadata) or GetAddOnMetadata
 ns.version = (getMetadata and getMetadata(ADDON_NAME, "Version")) or "dev"
 
-local PRINT_PREFIX = "|cffd9b3ffForeverTooltip|r: "
+local PRINT_PREFIX = "|cffd9b3ffAKForeverTooltip|r: "
 
 function ns:Print(...)
     local parts = {}
@@ -225,16 +225,16 @@ local function characterKey()
 end
 
 local function initDB()
-    local bridge = ForeverTooltip_SavedStateBridge
-    if type(ForeverTooltipDB) ~= "table" then
-        ForeverTooltipDB = {}
+    local bridge = AKForeverTooltip_SavedStateBridge
+    if type(AKForeverTooltipDB) ~= "table" then
+        AKForeverTooltipDB = {}
         ns.savedStateSource = "none (first run, or the client did not load it)"
-    elseif type(bridge) == "table" and bridge.table == ForeverTooltipDB then
+    elseif type(bridge) == "table" and bridge.table == AKForeverTooltipDB then
         ns.savedStateSource = "bridge addon"
     else
         ns.savedStateSource = "client"
     end
-    local db = ForeverTooltipDB
+    local db = AKForeverTooltipDB
 
     db.schema = db.schema or 1
     db.loads = (db.loads or 0) + 1
@@ -277,10 +277,10 @@ function ns:RegisterCommand(name, help, fn)
     commandOrder[#commandOrder + 1] = name
 end
 
-SLASH_FOREVERTOOLTIP1 = "/forevertooltip"
-SLASH_FOREVERTOOLTIP2 = "/ftt"
-SLASH_FOREVERTOOLTIP3 = "/ftip"
-SlashCmdList["FOREVERTOOLTIP"] = function(message)
+SLASH_AKFOREVERTOOLTIP1 = "/akforevertooltip"
+SLASH_AKFOREVERTOOLTIP2 = "/ftt"
+SLASH_AKFOREVERTOOLTIP3 = "/ftip"
+SlashCmdList["AKFOREVERTOOLTIP"] = function(message)
     local name, rest = string.match(message or "", "^%s*(%S*)%s*(.-)%s*$")
     local command = commands[string.lower(name or "")]
     if command then

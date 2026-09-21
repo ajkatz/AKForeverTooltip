@@ -1,11 +1,11 @@
 ## Interface: 16001
 ## Version: 0.1.0
-## Title: ForeverTooltip
+## Title: AKForeverTooltip
 ## Notes: The game tooltip follows the mouse instead of sitting in the bottom right corner, and players' names (and the tooltip's health bar) take the colour of their class.
 ## Author: Purrdee
-## IconTexture: Interface\AddOns\ForeverTooltip\icon
-## SavedVariables: ForeverTooltipDB
-## OptionalDeps: ForeverTooltip_SavedState
+## IconTexture: Interface\AddOns\AKForeverTooltip\icon
+## SavedVariables: AKForeverTooltipDB
+## OptionalDeps: AKForeverTooltip_SavedState
 
 Core.lua
 Tooltip.lua

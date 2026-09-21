@@ -1,19 +1,19 @@
 <#
 .SYNOPSIS
-    Installs (or removes) ForeverTooltip_SavedState, a companion addon that works around
+    Installs (or removes) AKForeverTooltip_SavedState, a companion addon that works around
     the WoW: Forever beta client writing SavedVariables on logout but never reading them back.
 
 .DESCRIPTION
-    A SavedVariables file is plain Lua ("ForeverTooltipDB = { ... }"). The client will not
+    A SavedVariables file is plain Lua ("AKForeverTooltipDB = { ... }"). The client will not
     load it as saved data, but runs it happily as addon code. This creates
 
-        Interface\AddOns\ForeverTooltip_SavedState\
-            ForeverTooltip_SavedState.toc
+        Interface\AddOns\AKForeverTooltip_SavedState\
+            AKForeverTooltip_SavedState.toc
             Before.lua
             SV\            <- directory junction to WTF\Account\<account>\SavedVariables
             After.lua
 
-    whose .toc lists SV\ForeverTooltip.lua. The main addon declares it as an OptionalDep,
+    whose .toc lists SV\AKForeverTooltip.lua. The main addon declares it as an OptionalDep,
     so it runs first. Same mechanism as WeaponBuffs' bridge, verified in the 1.60.1 beta.
 
     Not needed once Blizzard fixes the client: run with -Remove.
@@ -25,8 +25,8 @@
 [CmdletBinding()]
 param(
     [string]$ClientPath = 'C:\Program Files (x86)\World of Warcraft\_classic_beta_',
-    [string]$AddonName = 'ForeverTooltip',
-    [string]$GlobalName = 'ForeverTooltipDB',
+    [string]$AddonName = 'AKForeverTooltip',
+    [string]$GlobalName = 'AKForeverTooltipDB',
 
     # Folder name under WTF\Account. Default: the most recently used account.
     [string]$Account,

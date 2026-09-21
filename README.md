@@ -1,4 +1,4 @@
-# ForeverTooltip
+# AKForeverTooltip
 
 Two tooltip fixes for **World of Warcraft: Forever** (Interface `16001`).
 

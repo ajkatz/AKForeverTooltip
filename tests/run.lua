@@ -1,4 +1,4 @@
--- ForeverTooltip scenario tests. Run from the repo root:  lua tests/run.lua
+-- AKForeverTooltip scenario tests. Run from the repo root:  lua tests/run.lua
 -- Every scenario loads a fresh copy of the addon into the mock client and fails if the addon raised ANY
 -- Lua error or did one of the things that taint Blizzard's tooltip (see tests/wowmock.lua).
 package.path = "./tests/?.lua;" .. package.path
@@ -57,7 +57,7 @@ local function color(widget, field)
     return c and string.format("%.2f %.2f %.2f", c[1], c[2], c[3]) or "none"
 end
 
-Mock.realPrint("ForeverTooltip tests")
+Mock.realPrint("AKForeverTooltip tests")
 
 scenario("a tooltip sent to Blizzard's corner follows the mouse instead - by changing its anchor type only", function()
     local ns = start()
@@ -66,20 +66,20 @@ scenario("a tooltip sent to Blizzard's corner follows the mouse instead - by cha
     equal(GameTooltip.__anchorType, "ANCHOR_CURSOR_RIGHT"); equal(GameTooltip.__offsetX, 16); equal(GameTooltip.__offsetY, 8)
     equal(ns.Tooltip.stats.anchorPath, "SetAnchorType"); equal(ns.Tooltip.stats.anchored, 1)
 
-    SlashCmdList.FOREVERTOOLTIP("anchor cursor")
+    SlashCmdList.AKFOREVERTOOLTIP("anchor cursor")
     Mock.asBlizzard(function() GameTooltip_SetDefaultAnchor(GameTooltip, UIParent) end)
     equal(GameTooltip.__anchorType, "ANCHOR_CURSOR"); equal(GameTooltip.__offsetX, 0, "centred above the mouse: no offsets")
-    SlashCmdList.FOREVERTOOLTIP("anchor left")
-    SlashCmdList.FOREVERTOOLTIP("offset 30 -4")
+    SlashCmdList.AKFOREVERTOOLTIP("anchor left")
+    SlashCmdList.AKFOREVERTOOLTIP("offset 30 -4")
     Mock.asBlizzard(function() GameTooltip_SetDefaultAnchor(GameTooltip, UIParent) end)
     equal(GameTooltip.__anchorType, "ANCHOR_CURSOR_LEFT"); equal(GameTooltip.__offsetX, 30); equal(GameTooltip.__offsetY, -4)
 
-    SlashCmdList.FOREVERTOOLTIP("anchor default")
+    SlashCmdList.AKFOREVERTOOLTIP("anchor default")
     Mock.asBlizzard(function() GameTooltip_SetDefaultAnchor(GameTooltip, UIParent) end)
     equal(GameTooltip.__anchorType, "ANCHOR_NONE", "Blizzard's corner, untouched")
     check(printed("Blizzard's corner"))
-    SlashCmdList.FOREVERTOOLTIP("anchor sideways"); check(printed("usage: /ftt anchor"))
-    SlashCmdList.FOREVERTOOLTIP("offset lots"); check(printed("usage: /ftt offset"))
+    SlashCmdList.AKFOREVERTOOLTIP("anchor sideways"); check(printed("usage: /ftt anchor"))
+    SlashCmdList.AKFOREVERTOOLTIP("offset lots"); check(printed("usage: /ftt offset"))
     equal(ns:GetOption("anchor"), "default")
     -- (the runner fails this scenario if SetOwner / ClearLines / Show / Hide were ever called by the addon)
 end)
@@ -103,13 +103,13 @@ scenario("a player's name and the health bar take the class colour; creatures ke
     equal(color(ItemRefTooltipTextLeft1, "__textColor"), "1.00 1.00 1.00")
     equal(color(GameTooltipStatusBar, "__barColor"), "0.00 1.00 0.00", "and the game tooltip's bar is left as it was")
 
-    SlashCmdList.FOREVERTOOLTIP("class bar off")
+    SlashCmdList.AKFOREVERTOOLTIP("class bar off")
     Mock.showUnitTooltip("rogue")
     equal(color(GameTooltipTextLeft1, "__textColor"), "1.00 0.96 0.41"); equal(color(GameTooltipStatusBar, "__barColor"), "0.00 1.00 0.00")
-    SlashCmdList.FOREVERTOOLTIP("class off")
+    SlashCmdList.AKFOREVERTOOLTIP("class off")
     Mock.showUnitTooltip("shaman")
     equal(color(GameTooltipTextLeft1, "__textColor"), "1.00 1.00 1.00", "switched off: Blizzard's colour")
-    SlashCmdList.FOREVERTOOLTIP("class on"); SlashCmdList.FOREVERTOOLTIP("class nonsense")
+    SlashCmdList.AKFOREVERTOOLTIP("class on"); SlashCmdList.AKFOREVERTOOLTIP("class nonsense")
     check(printed("usage: /ftt class"))
 end)
 
@@ -156,9 +156,9 @@ scenario("settings are account-wide and come back next session; diagnostics are 
     Mock.showUnitTooltip("rogue")
     equal(GameTooltip.__anchorType, "ANCHOR_CURSOR"); equal(color(GameTooltipStatusBar, "__barColor"), "0.00 1.00 0.00")
 
-    SlashCmdList.FOREVERTOOLTIP("debug"); SlashCmdList.FOREVERTOOLTIP("debug"); SlashCmdList.FOREVERTOOLTIP("")
+    SlashCmdList.AKFOREVERTOOLTIP("debug"); SlashCmdList.AKFOREVERTOOLTIP("debug"); SlashCmdList.AKFOREVERTOOLTIP("")
     check(printed("/ftt anchor"))
-    SlashCmdList.FOREVERTOOLTIP("diag")
+    SlashCmdList.AKFOREVERTOOLTIP("diag")
     Mock.fire("PLAYER_LOGOUT")
     local function assertPlain(value, path)
         local kind = type(value)
@@ -172,7 +172,7 @@ scenario("settings are account-wide and come back next session; diagnostics are 
             check(kind == "string" or kind == "number" or kind == "boolean", path .. ": " .. kind)
         end
     end
-    local report = ForeverTooltipDB.diag
+    local report = AKForeverTooltipDB.diag
     assertPlain(report, "diag")
     equal(report.hooks.anchor, true); equal(report.hooks.unit, true)
     equal(report.stats.coloured, 1); equal(report.samples[1].class, "ROGUE"); equal(report.client.setAnchorType, "function")

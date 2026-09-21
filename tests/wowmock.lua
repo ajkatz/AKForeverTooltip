@@ -1,4 +1,4 @@
--- Strict stand-in for the WoW client, enough to run ForeverTooltip under a plain Lua interpreter.
+-- Strict stand-in for the WoW client, enough to run AKForeverTooltip under a plain Lua interpreter.
 -- What it models of Blizzard's side:
 --
 --  * GameTooltip_SetDefaultAnchor(tooltip, parent): owns the tooltip with ANCHOR_NONE and pins it to the
@@ -14,7 +14,7 @@
 local Mock = {}
 
 local REAL_PRINT = print
-local ADDON = "ForeverTooltip"
+local ADDON = "AKForeverTooltip"
 
 Mock.SECRET = setmetatable({}, { __tostring = function() return "<SECRET>" end })
 
@@ -260,9 +260,9 @@ function Mock.install(options)
     end)
 
     -- Saved variables, as the bridge addon leaves them
-    G.ForeverTooltipDB, G.ForeverTooltip_SavedStateBridge = options.db, options.bridge
-    Mock.globalNames[#Mock.globalNames + 1] = "ForeverTooltipDB"
-    Mock.globalNames[#Mock.globalNames + 1] = "ForeverTooltip_SavedStateBridge"
+    G.AKForeverTooltipDB, G.AKForeverTooltip_SavedStateBridge = options.db, options.bridge
+    Mock.globalNames[#Mock.globalNames + 1] = "AKForeverTooltipDB"
+    Mock.globalNames[#Mock.globalNames + 1] = "AKForeverTooltip_SavedStateBridge"
 
     local root = options.root or "."
     local ns = {}
@@ -270,7 +270,7 @@ function Mock.install(options)
         local chunk = assert(loadfile(root .. "/" .. file))
         chunk(ADDON, ns)
     end
-    for _, name in ipairs({ "SLASH_FOREVERTOOLTIP1", "SLASH_FOREVERTOOLTIP2", "SLASH_FOREVERTOOLTIP3" }) do
+    for _, name in ipairs({ "SLASH_AKFOREVERTOOLTIP1", "SLASH_AKFOREVERTOOLTIP2", "SLASH_AKFOREVERTOOLTIP3" }) do
         Mock.globalNames[#Mock.globalNames + 1] = name
     end
     Mock.ns = ns
