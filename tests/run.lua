@@ -179,6 +179,80 @@ scenario("settings are account-wide and come back next session; diagnostics are 
     equal(#report.errors, 0); equal(#report.blockedActions, 0)
 end)
 
+scenario("health on a unit tooltip: the full line when both numbers can be read", function()
+    local ns, state = start()
+    state.units.me = { name = "Purr Gola", player = true, class = "SHAMAN",
+        health = 700, healthMax = 1000, power = 30, powerMax = 3000, powerToken = "MANA" }
+    Mock.showUnitTooltip("me")
+    local lines = GameTooltip.__lines or {}
+    equal(#lines, 2, "what it has, and what it runs on")
+    equal(lines[1].text, "700 hp (70%)")
+    equal(lines[2].text, "30 mana (1%)")
+    equal(lines[1].r, 0.90, "health is light"); equal(lines[1].b, 0.90)
+    equal(lines[2].r, 0.35, "mana is blue"); equal(lines[2].b, 1.00)
+    equal(ns.Tooltip.stats.healthRead, 2)
+    equal(ns.Tooltip.stats.healthHanded, 0)
+end)
+
+scenario("a power type the client will not name gets no line: a label would be a guess", function()
+    local ns, state = start()
+    state.units.me = { name = "Purr Gola", player = true, class = "SHAMAN",
+        health = 700, healthMax = 1000, power = 30, powerMax = 3000, powerToken = "MANA" }
+    state.secretAnswers.UnitPowerType = true
+    Mock.showUnitTooltip("me")
+    equal(#(GameTooltip.__lines or {}), 1, "health only")
+    equal((GameTooltip.__lines or {})[1].text, "700 hp (70%)")
+end)
+
+scenario("a creature with no power bar gets no second line", function()
+    local ns, state = start()
+    state.units.boar2 = { name = "Mottled Boar", player = false, health = 40, healthMax = 40 }
+    Mock.showUnitTooltip("boar2")
+    equal(#(GameTooltip.__lines or {}), 1)
+    equal((GameTooltip.__lines or {})[1].text, "40 hp (100%)")
+end)
+
+scenario("RUNIC_POWER reads as 'runic power'", function()
+    local ns, state = start()
+    state.units.dk = { name = "Grim", player = true, class = "WARRIOR",
+        health = 10, healthMax = 100, power = 50, powerMax = 100, powerToken = "RUNIC_POWER" }
+    Mock.showUnitTooltip("dk")
+    equal((GameTooltip.__lines or {})[2].text, "50 runic power (50%)")
+end)
+
+scenario("health the client keeps SECRET is handed to the line's font string, never read", function()
+    local ns, state = start()
+    state.units.them = { name = "Launcelot", player = true, class = "ROGUE",
+        health = Mock.SECRET, healthMax = Mock.SECRET }
+    Mock.showUnitTooltip("them")
+
+    local lines = GameTooltip.__lines or {}
+    equal(#lines, 1, "a line was still added")
+    equal(lines[1].text, " ", "added EMPTY: nothing secret goes anywhere near AddLine")
+    equal(lines[1].right, nil, "and no right-hand label: that column is flung to the tooltip s far edge")
+    equal(_G["GameTooltipTextLeft" .. #lines].__text, Mock.SECRET, "the secret itself, handed straight over")
+    equal(ns.Tooltip.stats.healthHanded, 1)
+    equal(ns.Tooltip.stats.healthRead, 0, "nothing was read, so no percentage was claimed")
+end)
+
+scenario("a secret current with a readable maximum is still never divided", function()
+    -- measured on a pet: the current is secret, the maximum is not
+    local ns, state = start()
+    state.units.pet = { name = "Wolf", player = false, health = Mock.SECRET, healthMax = 587 }
+    Mock.showUnitTooltip("pet")
+    equal(ns.Tooltip.stats.healthHanded, 1)
+    equal(ns.Tooltip.stats.healthRead, 0)
+end)
+
+scenario("health can be switched off, and then nothing is added at all", function()
+    local ns, state = start()
+    SlashCmdList.AKFOREVERTOOLTIP("health off")
+    state.units.me = { name = "Purr Gola", player = true, class = "SHAMAN", health = 300, healthMax = 1000 }
+    Mock.showUnitTooltip("me")
+    equal(#(GameTooltip.__lines or {}), 0)
+    equal(ns.Tooltip.stats.healthRead + ns.Tooltip.stats.healthHanded, 0)
+end)
+
 Mock.realPrint(string.format("\n%d passed, %d failed", passed, #failures))
 if #failures > 0 then
     os.exit(1)

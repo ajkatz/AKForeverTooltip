@@ -36,6 +36,10 @@ function methods.RegisterEvent(self, event)
 end
 function methods.GetName(self) return self.__name end
 function methods.SetTextColor(self, r, g, b) self.__textColor = { r, g, b } end
+-- A font string takes whatever it is handed, secret or not, and never looks at it - which is the one
+-- route a secret number has onto a tooltip line.
+function methods.SetText(self, text) self.__text = text end
+function methods.GetText(self) return self.__text end
 function methods.SetStatusBarColor(self, r, g, b) self.__barColor = { r, g, b } end
 
 local function newWidget(kind, name)
@@ -55,13 +59,56 @@ function tooltipMethods.SetAnchorType(self, anchorType, x, y)
 end
 function tooltipMethods.GetAnchorType(self) return self.__anchorType end
 function tooltipMethods.SetPoint(self, point, relativeTo) self.__point = { point, relativeTo } end
-for _, name in ipairs({ "ClearLines", "Show", "Hide", "FadeOut", "SetUnit", "AddLine", "SetText" }) do
+-- The dangerous ones are dangerous because each RUNS ONE OF THE TOOLTIP'S SCRIPTS as addon code -
+-- OnTooltipCleared, OnShow, OnHide - and that is what writes tainted values into it.
+for _, name in ipairs({ "ClearLines", "Show", "Hide", "FadeOut", "SetUnit", "SetText" }) do
     tooltipMethods[name] = function(self)
         if not Mock.blizzardCode then
             violation("addon code called " .. name .. " on Blizzard's tooltip (its scripts would run tainted)")
         end
         self["__" .. name] = true
     end
+end
+
+-- AddLine runs no script: it appends a line and lays the tooltip out again. Adding lines is the whole
+-- purpose of TooltipDataProcessor.AddTooltipPostCall, so it is not grouped with the four above - but it
+-- IS recorded, so a scenario can say what went onto the tooltip and in what order.
+function tooltipMethods.AddLine(self, text, r, g, b)
+    self.__lines = self.__lines or {}
+    self.__lines[#self.__lines + 1] = { text = text, r = r, g = g, b = b }
+    self.__AddLine = true
+    local name = self:GetName()
+    if name then
+        local key = name .. "TextLeft" .. #self.__lines
+        if not _G[key] then
+            _G[key] = newWidget("FontString", key)
+        end
+        _G[key]:SetText(text)
+    end
+end
+
+function tooltipMethods.AddDoubleLine(self, left, right, r, g, b)
+    self.__lines = self.__lines or {}
+    self.__lines[#self.__lines + 1] = { text = left, right = right, r = r, g = g, b = b }
+    self.__AddLine = true
+    local name = self:GetName()
+    if name then
+        for side, value in pairs({ Left = left, Right = right }) do
+            local key = name .. "Text" .. side .. #self.__lines
+            if not _G[key] then
+                _G[key] = newWidget("FontString", key)
+            end
+            _G[key]:SetText(value)
+        end
+    end
+end
+
+function tooltipMethods.NumLines(self)
+    return self.__lines and #self.__lines or 0
+end
+
+function tooltipMethods.ClearLineRecord(self)
+    self.__lines = nil
 end
 function tooltipMethods.GetUnit(self)
     if Mock.state.secretAnswers.GetUnit then
@@ -184,6 +231,24 @@ function Mock.install(options)
         end)
     end
     unitAnswer("UnitExists", function(unit) return unit ~= nil end)
+    -- health comes back SECRET for anyone but you, and for a pet the current is secret while the
+    -- maximum is not: both shapes are in the error reports this was written from
+    unitAnswer("UnitHealth", function(unit) return unit and unit.health end)
+    unitAnswer("UnitHealthMax", function(unit) return unit and unit.healthMax end)
+    global("BreakUpLargeNumbers", function(value) return tostring(value) end)
+    unitAnswer("UnitPower", function(unit) return unit and unit.power end)
+    unitAnswer("UnitPowerMax", function(unit) return unit and unit.powerMax end)
+    -- (powerType, powerToken): a creature with no bar has neither
+    global("UnitPowerType", function(unitToken)
+        if state.secretAnswers.UnitPowerType then
+            return Mock.SECRET, Mock.SECRET
+        end
+        local unit = state.units[unitToken]
+        if not unit or not unit.powerToken then
+            return nil, nil
+        end
+        return 0, unit.powerToken
+    end)
     unitAnswer("UnitIsPlayer", function(unit) return unit ~= nil and unit.player == true end)
     unitAnswer("UnitClass", function(unit)
         if not unit then

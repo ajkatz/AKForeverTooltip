@@ -25,9 +25,28 @@ local Tooltip = {}
 ns.Tooltip = Tooltip
 
 local ANCHOR_TYPES = { right = "ANCHOR_CURSOR_RIGHT", left = "ANCHOR_CURSOR_LEFT", cursor = "ANCHOR_CURSOR" }
+
+-- A colour per resource, keyed by the label. Blizzard's own PowerBarColor is darker than reads well on a
+-- black tooltip (its MANA is flat 0,0,1), so these are lifted; anything not named here falls back to
+-- PowerBarColor and then to plain light.
+local RESOURCE_COLORS = {
+    hp = { 0.90, 0.90, 0.90 },      -- light
+    mana = { 0.35, 0.55, 1.00 },    -- blue
+    energy = { 1.00, 0.96, 0.41 },  -- yellow
+    rage = { 0.75, 0.15, 0.15 },    -- dark red
+}
+local PLAIN = { 0.90, 0.90, 0.90 }
+
+-- There are half a dozen power tokens in the game and a tooltip fires every time the cursor crosses a
+-- unit, so the label and the colour for a token are worked out ONCE and kept. Neither can change.
+local labelCache, colorCache = {}, {}
 local HEALTH_GREEN = { 0, 1, 0 } -- the bar's own colour (GameTooltipStatusBar's BarColor)
 
-Tooltip.stats = { anchored = 0, anchorPath = "not used yet", coloured = 0, notPlayers = 0, unreadable = 0 }
+Tooltip.stats = { anchored = 0, anchorPath = "not used yet", coloured = 0, notPlayers = 0, unreadable = 0,
+    healthRead = 0,      -- health lines written as text, both numbers readable
+    healthHanded = 0,    -- ... and written by handing a SECRET straight to the font string
+    healthRefused = 0,   -- ... and the times that was not allowed. See the note above addHealth.
+}
 Tooltip.samples = {} -- the last few unit tooltips, for /ftt diag
 local barColoured = false
 
@@ -108,15 +127,144 @@ local function unitOf(tooltip)
     return nil
 end
 
+------------------------------------------------------------------------
+-- 3. Health on the tooltip
+--
+-- A tooltip LINE IS A STRING, and a secret number cannot be put into one by any route on this client:
+-- "12,345 / 20,000" needs concatenation and a percentage needs division, and both of those are READING.
+-- That is as far as AKForeverHealthText can go, and why its tooltip says nothing about a player you
+-- mouse over - both their current and maximum health are secret.
+--
+-- But a line is DRAWN BY A FONT STRING, and a font string takes a value straight from the API without
+-- anybody looking at it - the same move the action bars use for a secret count in a fight. So the line
+-- is added EMPTY (a plain string; nothing secret goes anywhere near AddLine) and the secret is then
+-- handed to the font string Blizzard just made for it.
+--
+-- Whether this client allows that is written down nowhere, so it is attempted inside a pcall and the
+-- answer is counted: `healthHanded` against `healthRefused` in '/ftt diag' says which, from a report
+-- rather than from anybody's guess. Refused costs an empty line and nothing else.
+--
+-- (We are inside AddTooltipPostCall, which is Blizzard's sanctioned hook and runs behind their taint
+-- barrier - the same reason the class colours are applied from here and not from a SetOwner hook.)
+------------------------------------------------------------------------
+
+-- The value itself, not ns.Readable's verdict on it: a secret is exactly what we want to keep here.
+local function rawValue(fn, ...)
+    if type(fn) ~= "function" then
+        return nil
+    end
+    local ok, value = pcall(fn, ...)
+    if not ok then
+        return nil
+    end
+    return value
+end
+
+-- One line of a resource: "700 hp (70%)" where the numbers can be read, and the number ALONE where they
+-- cannot.
+--
+-- The label wants to come along for a secret unit too, and there is exactly one way to put it there: a
+-- DOUBLE line, our label in the right column, the secret handed to the left. But a tooltip right-aligns
+-- that column against its own edge, so the pair comes out flung to opposite sides of the tooltip -
+-- "700 . . . . . . . . hp". There is no third option: a label in the SAME font string would have to be
+-- concatenated onto the number, and concatenating is reading.
+--
+-- So a secret unit gets the bare number, in order: health first, then power. Ugly beats stretched -
+-- and the COLOUR carries what the label cannot, which is why it is worth having.
+local function colorFor(label, token)
+    local named = RESOURCE_COLORS[label]
+    if named then
+        return named
+    end
+    local key = token or label
+    local cached = colorCache[key]
+    if cached then
+        return cached
+    end
+    local palette = _G.PowerBarColor -- focus, runic power, anything this client has that we have not named
+    local color = (type(palette) == "table" and type(token) == "string") and palette[token] or nil
+    if type(color) == "table" and type(color.r) == "number" and not ns.AnySecret(color.r, color.g, color.b) then
+        colorCache[key] = { color.r, color.g, color.b }
+    else
+        colorCache[key] = PLAIN
+    end
+    return colorCache[key]
+end
+
+local function addResource(tooltip, unit, current, max, label, color)
+    color = color or PLAIN
+    if current == nil then
+        return
+    end
+
+    -- `IsSecret` is asked before anything else: `max > 0` on a secret is itself the error
+    if not ns.IsSecret(current) and not ns.IsSecret(max)
+        and type(current) == "number" and type(max) == "number" and max > 0 then
+        tooltip:AddLine(string.format("%s %s (%d%%)", BreakUpLargeNumbers(current), label,
+            math.floor(current / max * 100 + 0.5)), color[1], color[2], color[3])
+        Tooltip.stats.healthRead = Tooltip.stats.healthRead + 1
+        return
+    end
+
+    -- added EMPTY, then the number goes onto the font string the tooltip just made for it. The line
+    -- keeps the colour AddLine gave it, so a secret number is still told apart by it.
+    tooltip:AddLine(" ", color[1], color[2], color[3])
+    local lines = rawValue(tooltip.NumLines, tooltip)
+    local fontString = type(lines) == "number" and _G[(tooltip:GetName() or "") .. "TextLeft" .. lines]
+    if type(fontString) ~= "table" or type(fontString.SetText) ~= "function" then
+        Tooltip.stats.healthRefused = Tooltip.stats.healthRefused + 1
+        return
+    end
+    if pcall(fontString.SetText, fontString, current) then
+        Tooltip.stats.healthHanded = Tooltip.stats.healthHanded + 1
+    else
+        Tooltip.stats.healthRefused = Tooltip.stats.healthRefused + 1
+    end
+end
+
+-- What a unit runs on: "MANA" -> "mana", "RUNIC_POWER" -> "runic power". nil when the client will not
+-- name it, because a label would then be a guess.
+local function powerLabel(unit)
+    local ok, _, token = pcall(UnitPowerType, unit)
+    if not ok or ns.IsSecret(token) or type(token) ~= "string" or token == "" then
+        return nil
+    end
+    local label = labelCache[token]
+    if not label then
+        label = (string.lower(token):gsub("_", " "))
+        labelCache[token] = label
+    end
+    return label, token
+end
+
+local function addHealth(tooltip, unit)
+    addResource(tooltip, unit, rawValue(UnitHealth, unit), rawValue(UnitHealthMax, unit), "hp",
+        RESOURCE_COLORS.hp)
+
+    local label, token = powerLabel(unit)
+    if not label then
+        return
+    end
+    local current, max = rawValue(UnitPower, unit), rawValue(UnitPowerMax, unit)
+    -- most creatures have no power bar at all, and an empty one is not worth a line
+    if not ns.IsSecret(max) and type(max) == "number" and max <= 0 then
+        return
+    end
+    addResource(tooltip, unit, current, max, label, colorFor(label, token))
+end
+
 local function onUnitTooltip(tooltip)
     if tooltip ~= GameTooltip then
         return
+    end
+    local unit = unitOf(tooltip)
+    if unit and ns:GetOption("health") then
+        ns.SafeCall(addHealth, tooltip, unit)
     end
     if not ns:GetOption("classColors") then
         restoreBar(tooltip)
         return
     end
-    local unit = unitOf(tooltip)
     local isPlayer = unit and ns.Readable(UnitIsPlayer, unit)
     if not isPlayer then
         Tooltip.stats.unreadable = Tooltip.stats.unreadable + 1
@@ -213,6 +361,22 @@ ns:RegisterCommand("offset", "distance from the mouse for 'right' / 'left': /ftt
         return
     end
     ns:Print("tooltip:", describeAnchor() .. ".")
+end)
+
+ns:RegisterCommand("health", "health on unit tooltips: 'on' (default) / 'off'. A unit whose health the client keeps secret shows the number alone - a percentage needs dividing, and dividing is reading", function(rest)
+    local mode = string.lower(rest or "")
+    if mode ~= "on" and mode ~= "off" then
+        local stats = Tooltip.stats
+        ns:Print("usage: /ftt health on | off   (now: " .. (ns:GetOption("health") and "on" or "off") .. ")")
+        ns:Print(string.format("lines written: %d read outright, %d by handing over a secret, %d refused.",
+            stats.healthRead, stats.healthHanded, stats.healthRefused))
+        if stats.healthRefused > 0 and stats.healthHanded == 0 then
+            ns:Print("this client will not take a secret on a tooltip line - |cffffd100/ftt health off|r stops it trying.")
+        end
+        return
+    end
+    ns:SetOption("health", mode == "on")
+    ns:Print("health on tooltips: " .. mode .. ".")
 end)
 
 ns:RegisterCommand("class", "class colours: 'on' (default) / 'off'; 'bar on' / 'bar off' for the health bar", function(rest)

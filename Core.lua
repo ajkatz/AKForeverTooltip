@@ -201,6 +201,7 @@ local OPTION_DEFAULTS = {
     offsetY = 8,
     classColors = true,  -- a player's name in the colour of their class
     classBar = true,     -- ... and the tooltip's health bar too
+    health = true,       -- a health line on unit tooltips (see Tooltip.lua: a secret one is HANDED over, never read)
 }
 
 -- The realm is squeezed ("Classic Beta PvE" -> "ClassicBetaPvE"): on a fresh login UnitFullName has no
