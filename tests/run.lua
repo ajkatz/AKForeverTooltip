@@ -6,6 +6,12 @@ local Mock = require("wowmock")
 
 local failures, passed = {}, 0
 
+local function near(actual, expected, tolerance, what)
+    if type(actual) ~= "number" or math.abs(actual - expected) > tolerance then
+        error((what or "value") .. ": expected about " .. tostring(expected) .. ", got " .. tostring(actual), 2)
+    end
+end
+
 local function check(condition, message)
     if not condition then
         error(message or "check failed", 2)
@@ -186,12 +192,29 @@ scenario("health on a unit tooltip: the full line when both numbers can be read"
     Mock.showUnitTooltip("me")
     local lines = GameTooltip.__lines or {}
     equal(#lines, 2, "what it has, and what it runs on")
-    equal(lines[1].text, "700 hp (70%)")
-    equal(lines[2].text, "30 mana (1%)")
-    equal(lines[1].r, 0.90, "health is light"); equal(lines[1].b, 0.90)
+    equal(lines[1].text, "700 hp (70%)  -300", "and how much is missing")
+    equal(lines[2].text, "30 mana (1%)", "a resource that is not health gets no deficit")
     equal(lines[2].r, 0.35, "mana is blue"); equal(lines[2].b, 1.00)
-    equal(ns.Tooltip.stats.healthRead, 2)
+    equal(ns.Tooltip.stats.healthRead, 2, "two lines read outright")
     equal(ns.Tooltip.stats.healthHanded, 0)
+
+    -- health is coloured by how much is left, not by one fixed colour. (Each look below reads the unit
+    -- again, so the counts above are checked before this and not after.)
+    local function healthColorAt(value)
+        state.units.me.health = value
+        GameTooltip.__lines = nil
+        Mock.showUnitTooltip("me")
+        local line = GameTooltip.__lines[1]
+        return line.r, line.g, line.b
+    end
+    local r, g = healthColorAt(1000)
+    near(r, 0.55, 0.01, "whole: green"); near(g, 0.85, 0.01)
+    r, g = healthColorAt(500)
+    near(r, 0.95, 0.01, "half: amber"); near(g, 0.80, 0.01)
+    r, g = healthColorAt(100)
+    near(r, 0.90, 0.01, "nearly gone: red"); near(g, 0.25, 0.01)
+    check(select(1, healthColorAt(700)) > 0.55, "and it moves between them rather than jumping")
+    state.units.me.health = 700
 end)
 
 scenario("a power type the client will not name gets no line: a label would be a guess", function()
@@ -201,7 +224,7 @@ scenario("a power type the client will not name gets no line: a label would be a
     state.secretAnswers.UnitPowerType = true
     Mock.showUnitTooltip("me")
     equal(#(GameTooltip.__lines or {}), 1, "health only")
-    equal((GameTooltip.__lines or {})[1].text, "700 hp (70%)")
+    equal((GameTooltip.__lines or {})[1].text, "700 hp (70%)  -300")
 end)
 
 scenario("a creature with no power bar gets no second line", function()
@@ -251,6 +274,118 @@ scenario("health can be switched off, and then nothing is added at all", functio
     Mock.showUnitTooltip("me")
     equal(#(GameTooltip.__lines or {}), 0)
     equal(ns.Tooltip.stats.healthRead + ns.Tooltip.stats.healthHanded, 0)
+end)
+
+local function textsOf(tooltip)
+    local out = {}
+    for _, line in ipairs((tooltip or GameTooltip).__lines or {}) do
+        out[#out + 1] = tostring(line.text)
+    end
+    return table.concat(out, " | ")
+end
+
+scenario("who they are hitting: YOU stands out, somebody else is named, and silence when the client will not say", function()
+    local ns, state = start()
+    state.units.you = { name = "Purr Gola", player = true, class = "SHAMAN", health = 10, healthMax = 10 }
+    state.units.boar = { name = "Mottled Boar", player = false, health = 40, healthMax = 40 }
+    state.units.player = state.units.you -- UnitIsUnit(x, "player") compares the tables
+
+    state.units.boar.target = state.units.you
+    Mock.showUnitTooltip("boar")
+    check(textsOf():find("Targeting: YOU", 1, true), textsOf())
+
+    -- somebody else, by name
+    state.units.other = { name = "Launcelot", player = true, class = "ROGUE" }
+    state.units.boar.target = state.units.other
+    GameTooltip.__lines = nil
+    Mock.showUnitTooltip("boar")
+    check(textsOf():find("Targeting: Launcelot", 1, true), textsOf())
+
+    -- a name the client keeps to itself: no line rather than "Targeting: somebody"
+    state.secretAnswers.UnitName = true
+    GameTooltip.__lines = nil
+    Mock.showUnitTooltip("boar")
+    check(not textsOf():find("Targeting", 1, true), "no guess: " .. textsOf())
+    state.secretAnswers.UnitName = nil
+
+    -- and nothing at all when they are hitting nobody
+    state.units.boar.target = nil
+    GameTooltip.__lines = nil
+    Mock.showUnitTooltip("boar")
+    check(not textsOf():find("Targeting", 1, true))
+end)
+
+scenario("how far away, in the bands the client is willing to answer", function()
+    local ns, state = start()
+    state.units.player = { name = "Purr Gola", player = true }
+    state.units.boar = { name = "Mottled Boar", player = false, yards = 8 }
+
+    local function bandAt(yards)
+        state.units.boar.yards = yards
+        GameTooltip.__lines = nil
+        Mock.showUnitTooltip("boar")
+        return textsOf()
+    end
+    check(bandAt(8):find("within 10 yd", 1, true), bandAt(8))
+    check(bandAt(10.5):find("within 11 yd", 1, true), bandAt(10.5))
+    check(bandAt(20):find("within 28 yd", 1, true), bandAt(20))
+    check(bandAt(40):find("over 28 yd", 1, true), bandAt(40))
+
+    -- a client that will not measure says nothing, rather than "further than 28"
+    state.units.boar.yards = nil
+    GameTooltip.__lines = nil
+    Mock.showUnitTooltip("boar")
+    check(not textsOf():find("yd", 1, true), "silence, not a guess: " .. textsOf())
+
+    -- and it never asks how far you are from yourself
+    state.units.me = state.units.player
+    GameTooltip.__lines = nil
+    Mock.showUnitTooltip("me")
+    check(not textsOf():find("yd", 1, true))
+end)
+
+scenario("your own pet's mood, and only your own pet's", function()
+    local ns, state = start()
+    state.units.wolf = { name = "Wolf", player = false, health = 500, healthMax = 500 }
+    state.units.pet = state.units.wolf
+    state.petHappiness, state.petLoyalty = 3, 6
+    Mock.showUnitTooltip("wolf")
+    check(textsOf():find("happy", 1, true), textsOf())
+    check(textsOf():find("loyalty 6", 1, true), textsOf())
+
+    state.petHappiness = 1
+    GameTooltip.__lines = nil
+    Mock.showUnitTooltip("wolf")
+    check(textsOf():find("unhappy", 1, true), textsOf())
+
+    -- somebody else's pet is not your pet
+    state.units.pet = nil
+    GameTooltip.__lines = nil
+    Mock.showUnitTooltip("wolf")
+    check(not textsOf():find("happy", 1, true), textsOf())
+
+    -- a client without the call at all: no line, nothing broken
+    state.units.pet = state.units.wolf
+    state.petHappiness = nil
+    GameTooltip.__lines = nil
+    Mock.showUnitTooltip("wolf")
+    check(not textsOf():find("happy", 1, true))
+end)
+
+scenario("the id on a spell and on an item, and never on a unit", function()
+    local ns, state = start()
+    Mock.showSpellTooltip(2643)
+    check(textsOf():find("spell 2643", 1, true), textsOf())
+
+    GameTooltip.__lines = nil
+    Mock.showItemTooltip(6529)
+    check(textsOf():find("item 6529", 1, true), textsOf())
+
+    -- switched off
+    SlashCmdList.AKFOREVERTOOLTIP("lines ids off")
+    GameTooltip.__lines = nil
+    Mock.showSpellTooltip(2643)
+    check(not textsOf():find("spell", 1, true), textsOf())
 end)
 
 Mock.realPrint(string.format("\n%d passed, %d failed", passed, #failures))

@@ -209,7 +209,18 @@ function Mock.install(options)
     global("date", function() return "2026-09-20 12:00:00" end)
     global("InCombatLockdown", function() return state.inCombat end)
     global("GetBuildInfo", function() return "1.60.1", "69913", "Sep 17 2026", 16001 end)
-    global("UnitName", function() return state.playerName end)
+    -- the NAME of whatever unit you asked about, not always the player s: "Targeting: <them>" is built
+    -- on this, and a mock that ignores the unit token cannot tell the two apart
+    global("UnitName", function(unitToken)
+        if state.secretAnswers.UnitName then
+            return Mock.SECRET
+        end
+        local unit = state.units[unitToken]
+        if unit then
+            return unit.name
+        end
+        return state.playerName
+    end)
     global("UnitFullName", function() return state.playerName, "TestRealm" end)
     global("GetRealmName", function() return "Test Realm" end)
     global("SlashCmdList", {})
@@ -234,6 +245,34 @@ function Mock.install(options)
     -- health comes back SECRET for anyone but you, and for a pet the current is secret while the
     -- maximum is not: both shapes are in the error reports this was written from
     unitAnswer("UnitHealth", function(unit) return unit and unit.health end)
+    -- is this unit that unit? (the token pair, not the table)
+    global("UnitIsUnit", function(a, b)
+        if state.secretAnswers.UnitIsUnit then
+            return Mock.SECRET
+        end
+        local left, right = state.units[a], state.units[b]
+        return left ~= nil and left == right
+    end)
+    -- the client answers range in BANDS, not yards: 1 inspect (~28), 2 trade (~11), 3 duel (~10)
+    global("CheckInteractDistance", function(unitToken, index)
+        if state.secretAnswers.CheckInteractDistance then
+            return Mock.SECRET
+        end
+        local unit = state.units[unitToken]
+        local yards = unit and unit.yards
+        if type(yards) ~= "number" then
+            return nil
+        end
+        local limit = ({ [1] = 28, [2] = 11, [3] = 10 })[index]
+        return limit ~= nil and yards <= limit
+    end)
+    -- happiness 1-3, damage %, loyalty
+    global("GetPetHappiness", function()
+        if state.petHappiness == nil then
+            return nil
+        end
+        return state.petHappiness, 100, state.petLoyalty
+    end)
     unitAnswer("UnitHealthMax", function(unit) return unit and unit.healthMax end)
     global("BreakUpLargeNumbers", function(value) return tostring(value) end)
     unitAnswer("UnitPower", function(unit) return unit and unit.power end)
@@ -293,9 +332,25 @@ function Mock.install(options)
             end,
         })
         -- Blizzard shows a unit tooltip: default anchor (world units), build the lines, run the post calls
+        -- a spell or an item tooltip: the id arrives in the data, as Blizzard hands it over
+        function Mock.showSpellTooltip(id, tooltip)
+            tooltip = tooltip or G.GameTooltip
+            for _, fn in ipairs(postCalls[G.Enum.TooltipDataType.Spell] or {}) do
+                fn(tooltip, { type = G.Enum.TooltipDataType.Spell, id = id })
+            end
+        end
+
+        function Mock.showItemTooltip(id, tooltip)
+            tooltip = tooltip or G.GameTooltip
+            for _, fn in ipairs(postCalls[G.Enum.TooltipDataType.Item] or {}) do
+                fn(tooltip, { type = G.Enum.TooltipDataType.Item, id = id })
+            end
+        end
+
         function Mock.showUnitTooltip(unitToken, tooltip)
             tooltip = tooltip or G.GameTooltip
             state.units.mouseover = state.units[unitToken]
+            state.units.mouseovertarget = state.units[unitToken] and state.units[unitToken].target or nil
             Mock.asBlizzard(function()
                 G.GameTooltip_SetDefaultAnchor(tooltip, G.UIParent)
                 tooltip.__unit, tooltip.__unitName = unitToken, state.units[unitToken] and state.units[unitToken].name

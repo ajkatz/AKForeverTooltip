@@ -202,6 +202,10 @@ local OPTION_DEFAULTS = {
     classColors = true,  -- a player's name in the colour of their class
     classBar = true,     -- ... and the tooltip's health bar too
     health = true,       -- a health line on unit tooltips (see Tooltip.lua: a secret one is HANDED over, never read)
+    targetOfTarget = true, -- who the unit is hitting ("Targeting: YOU")
+    range = true,        -- roughly how far away they are, in the bands the client will answer
+    petMood = true,      -- your own pet's happiness and loyalty
+    ids = true,          -- the spell or item id on a spell / item tooltip
 }
 
 -- The realm is squeezed ("Classic Beta PvE" -> "ClassicBetaPvE"): on a fresh login UnitFullName has no

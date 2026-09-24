@@ -30,11 +30,44 @@ local ANCHOR_TYPES = { right = "ANCHOR_CURSOR_RIGHT", left = "ANCHOR_CURSOR_LEFT
 -- black tooltip (its MANA is flat 0,0,1), so these are lifted; anything not named here falls back to
 -- PowerBarColor and then to plain light.
 local RESOURCE_COLORS = {
-    hp = { 0.90, 0.90, 0.90 },      -- light
+    hp = { 0.55, 0.85, 0.45 },      -- green: the whole-and-healthy end of the scale below
     mana = { 0.35, 0.55, 1.00 },    -- blue
     energy = { 1.00, 0.96, 0.41 },  -- yellow
     rage = { 0.75, 0.15, 0.15 },    -- dark red
 }
+
+-- HEALTH MOVES. Full reads green, hurt reads amber, nearly gone reads red - what a health bar does, so
+-- the number is worth a glance rather than just being there. Three stops, mixed between, because two
+-- stops (green straight to red) passes through a muddy brown in the middle.
+--
+-- It only works where the numbers can be READ: a fraction needs current divided by maximum. A unit whose
+-- health the client keeps secret has no fraction to colour by, so it takes the whole-and-healthy end and
+-- stays there - and the colour then carries no meaning it has not earned.
+local HEALTH_SCALE = {
+    { at = 1.00, color = { 0.55, 0.85, 0.45 } }, -- whole
+    { at = 0.50, color = { 0.95, 0.80, 0.30 } }, -- amber
+    { at = 0.15, color = { 0.90, 0.25, 0.25 } }, -- nearly gone
+}
+
+local function healthColor(fraction)
+    if type(fraction) ~= "number" then
+        return HEALTH_SCALE[1].color
+    end
+    fraction = math.max(0, math.min(1, fraction))
+    for index = 1, #HEALTH_SCALE - 1 do
+        local upper, lower = HEALTH_SCALE[index], HEALTH_SCALE[index + 1]
+        if fraction >= lower.at then
+            local span = upper.at - lower.at
+            local mix = span > 0 and (fraction - lower.at) / span or 1
+            return {
+                lower.color[1] + (upper.color[1] - lower.color[1]) * mix,
+                lower.color[2] + (upper.color[2] - lower.color[2]) * mix,
+                lower.color[3] + (upper.color[3] - lower.color[3]) * mix,
+            }
+        end
+    end
+    return HEALTH_SCALE[#HEALTH_SCALE].color
+end
 local PLAIN = { 0.90, 0.90, 0.90 }
 
 -- There are half a dozen power tokens in the game and a tooltip fires every time the cursor crosses a
@@ -46,6 +79,7 @@ Tooltip.stats = { anchored = 0, anchorPath = "not used yet", coloured = 0, notPl
     healthRead = 0,      -- health lines written as text, both numbers readable
     healthHanded = 0,    -- ... and written by handing a SECRET straight to the font string
     healthRefused = 0,   -- ... and the times that was not allowed. See the note above addHealth.
+    targetLines = 0, rangeLines = 0, moodLines = 0, idLines = 0,
 }
 Tooltip.samples = {} -- the last few unit tooltips, for /ftt diag
 local barColoured = false
@@ -198,7 +232,10 @@ end
 
 Tooltip.ColorFor = function(label, token) return colorFor(label, token) end
 
-local function addResource(tooltip, unit, current, max, label, color)
+-- `deficit`: also say how much is MISSING. Worth it for health, where it is the number you act on -
+-- whether this is worth a heal, and how big a one. Not for a power bar: nobody topped anybody up by
+-- 2,970 mana, and the line is longer for nothing.
+local function addResource(tooltip, unit, current, max, label, color, deficit)
     color = color or PLAIN
     if current == nil then
         return
@@ -207,8 +244,15 @@ local function addResource(tooltip, unit, current, max, label, color)
     -- `IsSecret` is asked before anything else: `max > 0` on a secret is itself the error
     if not ns.IsSecret(current) and not ns.IsSecret(max)
         and type(current) == "number" and type(max) == "number" and max > 0 then
-        tooltip:AddLine(string.format("%s %s (%d%%)", BreakUpLargeNumbers(current), label,
-            math.floor(current / max * 100 + 0.5)), color[1], color[2], color[3])
+        -- what is MISSING, which is the number you act on: whether this is worth a heal, and how big a
+        -- one. Left off at full, where "-0" is noise.
+        local missing = max - current
+        local text = string.format("%s %s (%d%%)", BreakUpLargeNumbers(current), label,
+            math.floor(current / max * 100 + 0.5))
+        if deficit and missing > 0 then
+            text = text .. "  -" .. BreakUpLargeNumbers(missing)
+        end
+        tooltip:AddLine(text, color[1], color[2], color[3])
         Tooltip.stats.healthRead = Tooltip.stats.healthRead + 1
         return
     end
@@ -245,8 +289,19 @@ local function powerLabel(unit)
 end
 
 local function addHealth(tooltip, unit)
-    addResource(tooltip, unit, rawValue(UnitHealth, unit), rawValue(UnitHealthMax, unit), "hp",
-        colorFor("hp"))
+    local current, maximum = rawValue(UnitHealth, unit), rawValue(UnitHealthMax, unit)
+    -- a colour you set yourself beats the scale: you asked for that one, it does not move
+    local yours = ns.cdb and ns.cdb.colors and ns.cdb.colors.hp
+    local color
+    if type(yours) == "table" and #yours == 3 then
+        color = yours
+    elseif not ns.IsSecret(current) and not ns.IsSecret(maximum)
+        and type(current) == "number" and type(maximum) == "number" and maximum > 0 then
+        color = healthColor(current / maximum)
+    else
+        color = HEALTH_SCALE[1].color -- no fraction to go on: the healthy end, claiming nothing
+    end
+    addResource(tooltip, unit, current, maximum, "hp", color, true)
 
     local label, token = powerLabel(unit)
     if not label then
@@ -260,13 +315,119 @@ local function addHealth(tooltip, unit)
     addResource(tooltip, unit, current, max, label, colorFor(label, token))
 end
 
+------------------------------------------------------------------------
+-- 4. The other things Blizzard leaves out
+------------------------------------------------------------------------
+local YOU_COLOR = { 1.00, 0.35, 0.35 }   -- they are hitting YOU
+local THEM_COLOR = { 0.75, 0.75, 0.78 }
+local RANGE_COLOR = { 0.65, 0.70, 0.80 }
+local MOOD_COLORS = { { 0.90, 0.25, 0.25 }, { 0.95, 0.80, 0.30 }, { 0.55, 0.85, 0.45 } }
+local MOOD_NAMES = { "unhappy", "content", "happy" }
+
+-- WHO THEY ARE HITTING. The most useful line a tooltip can carry in a fight - is that caster on you or
+-- on the healer - and Blizzard's has nothing like it. A unit's target is another unit, so its name may
+-- be secret the same way a player's class is; unreadable simply means no line.
+local function addTargetOfTarget(tooltip, unit)
+    local theirTarget = unit .. "target"
+    local exists = ns.Readable(UnitExists, theirTarget)
+    if not (exists and exists[1] == true) then
+        return
+    end
+    local isYou = ns.Readable(UnitIsUnit, theirTarget, "player")
+    if isYou and isYou[1] == true then
+        tooltip:AddLine("Targeting: YOU", YOU_COLOR[1], YOU_COLOR[2], YOU_COLOR[3])
+        Tooltip.stats.targetLines = Tooltip.stats.targetLines + 1
+        return
+    end
+    local name = ns.Readable(UnitName, theirTarget)
+    if not (name and type(name[1]) == "string" and name[1] ~= "") then
+        return -- the client will not say who: better nothing than "Targeting: someone"
+    end
+    tooltip:AddLine("Targeting: " .. name[1], THEM_COLOR[1], THEM_COLOR[2], THEM_COLOR[3])
+    Tooltip.stats.targetLines = Tooltip.stats.targetLines + 1
+end
+
+-- HOW FAR. CheckInteractDistance answers in bands rather than yards, and the bands are what the client
+-- is willing to say - so that is what is shown, rather than a made-up number. No secret values are
+-- involved at all, which makes this the one addition here that cannot be defeated by them.
+-- No tilde: it sits high in this font and reads badly, and "within" already says the number is a
+-- ceiling rather than a measurement. The ceilings are Blizzards own - duel 9.9, trade 11.11, inspect 28.
+local RANGE_BANDS = {
+    { check = 3, text = "within 10 yd" },  -- duel
+    { check = 2, text = "within 11 yd" },  -- trade
+    { check = 1, text = "within 28 yd" },  -- inspect
+}
+
+local function addRange(tooltip, unit)
+    if type(CheckInteractDistance) ~= "function" then
+        return
+    end
+    local isYou = ns.Readable(UnitIsUnit, unit, "player")
+    if isYou and isYou[1] == true then
+        return -- how far away you are from yourself is not a question
+    end
+    -- nil is "I will not say", NOT "out of range": claiming a distance the client never gave would be
+    -- worse than saying nothing. Only a definite false from every band earns the last line.
+    local answered = false
+    for _, band in ipairs(RANGE_BANDS) do
+        local answer = ns.Readable(CheckInteractDistance, unit, band.check)
+        local value = answer and answer[1]
+        if value ~= nil then
+            answered = true
+        end
+        if value == true then
+            tooltip:AddLine(band.text, RANGE_COLOR[1], RANGE_COLOR[2], RANGE_COLOR[3])
+            Tooltip.stats.rangeLines = Tooltip.stats.rangeLines + 1
+            return
+        end
+    end
+    if not answered then
+        return
+    end
+    tooltip:AddLine("over 28 yd", RANGE_COLOR[1], RANGE_COLOR[2], RANGE_COLOR[3])
+    Tooltip.stats.rangeLines = Tooltip.stats.rangeLines + 1
+end
+
+-- YOUR PET'S MOOD. Hunter-only, and GetPetHappiness is a Classic-era call that may simply not be here -
+-- in which case there is no line and nothing is broken.
+local function addPetMood(tooltip, unit)
+    local isPet = ns.Readable(UnitIsUnit, unit, "pet")
+    if not (isPet and isPet[1] == true) then
+        return
+    end
+    local answer = ns.Readable(_G.GetPetHappiness)
+    local happiness = answer and answer[1]
+    if type(happiness) ~= "number" or happiness < 1 or happiness > 3 then
+        return
+    end
+    local loyalty = answer and answer[3]
+    local color = MOOD_COLORS[happiness]
+    local text = MOOD_NAMES[happiness]
+    if type(loyalty) == "number" and loyalty > 0 then
+        text = text .. "  (loyalty " .. loyalty .. ")"
+    end
+    tooltip:AddLine(text, color[1], color[2], color[3])
+    Tooltip.stats.moodLines = Tooltip.stats.moodLines + 1
+end
+
 local function onUnitTooltip(tooltip)
     if tooltip ~= GameTooltip then
         return
     end
     local unit = unitOf(tooltip)
-    if unit and ns:GetOption("health") then
-        ns.SafeCall(addHealth, tooltip, unit)
+    if unit then
+        if ns:GetOption("health") then
+            ns.SafeCall(addHealth, tooltip, unit)
+        end
+        if ns:GetOption("petMood") then
+            ns.SafeCall(addPetMood, tooltip, unit)
+        end
+        if ns:GetOption("targetOfTarget") then
+            ns.SafeCall(addTargetOfTarget, tooltip, unit)
+        end
+        if ns:GetOption("range") then
+            ns.SafeCall(addRange, tooltip, unit)
+        end
     end
     if not ns:GetOption("classColors") then
         restoreBar(tooltip)
@@ -312,10 +473,27 @@ local function onUnitTooltip(tooltip)
     remember({ unit = unit, result = "coloured", class = class[2] })
 end
 
+-- THE ID, on a spell or an item. Dull for a player and invaluable for anyone writing a macro or an
+-- addon: half a day went into finding out by hand whether Multi-Shot casts, and the answer began with
+-- knowing its id. Blizzard's tooltip data hands it over directly - no lookup, nothing secret.
+local ID_COLOR = { 0.55, 0.55, 0.60 }
+
+local function addID(tooltip, data, what)
+    if tooltip ~= GameTooltip or not ns:GetOption("ids") then
+        return
+    end
+    local id = type(data) == "table" and data.id or nil
+    if ns.IsSecret(id) or type(id) ~= "number" then
+        return
+    end
+    tooltip:AddLine(what .. " " .. id, ID_COLOR[1], ID_COLOR[2], ID_COLOR[3])
+    Tooltip.stats.idLines = Tooltip.stats.idLines + 1
+end
+
 ------------------------------------------------------------------------
 -- Wiring
 ------------------------------------------------------------------------
-Tooltip.hooks = { anchor = false, unit = false }
+Tooltip.hooks = { anchor = false, unit = false, spell = false, item = false }
 
 ns:Listen("LOGIN", function()
     if type(hooksecurefunc) == "function" and type(_G.GameTooltip_SetDefaultAnchor) == "function" then
@@ -324,6 +502,19 @@ ns:Listen("LOGIN", function()
         end)
         Tooltip.hooks.anchor = true
     end
+    -- the id on a spell or an item, each its own kind of tooltip
+    local kinds = Enum and Enum.TooltipDataType
+    if TooltipDataProcessor and TooltipDataProcessor.AddTooltipPostCall and kinds then
+        for what, kind in pairs({ ["spell"] = kinds.Spell, ["item"] = kinds.Item }) do
+            if kind ~= nil then
+                TooltipDataProcessor.AddTooltipPostCall(kind, function(tooltip, data)
+                    ns.SafeCall(addID, tooltip, data, what)
+                end)
+                Tooltip.hooks[what] = true
+            end
+        end
+    end
+
     local unitType = Enum and Enum.TooltipDataType and Enum.TooltipDataType.Unit
     if TooltipDataProcessor and TooltipDataProcessor.AddTooltipPostCall and unitType ~= nil then
         TooltipDataProcessor.AddTooltipPostCall(unitType, function(tooltip)
@@ -432,4 +623,32 @@ ns:RegisterCommand("color", "the colour of a line: /ftt color hp 66ff66, /ftt co
     ns.cdb.colors[which] = { tonumber(hex:sub(1, 2), 16) / 255, tonumber(hex:sub(3, 4), 16) / 255,
         tonumber(hex:sub(5, 6), 16) / 255 }
     ns:Print(which .. " is now |cff" .. hex .. "##" .. hex .. "|r. Mouse over something to see it.")
+end)
+
+-- Which extra lines you want. Each is a plain on/off; nothing here changes what a line SAYS, only
+-- whether it is there at all.
+local LINES = { health = "the hp / power lines", targetofttarget = false,
+    targetoftarget = "who they are hitting", range = "roughly how far away", petmood = "your pet's mood",
+    ids = "the spell or item id" }
+local LINE_OPTIONS = { health = "health", targetoftarget = "targetOfTarget", range = "range",
+    petmood = "petMood", ids = "ids" }
+
+ns:RegisterCommand("lines", "which extra lines to show: /ftt lines range off, /ftt lines ids on, or /ftt lines to list them", function(rest)
+    local which, value = string.match(rest or "", "^%s*(%S*)%s*(%S*)%s*$")
+    which = string.lower(which or ""):gsub("[%s-]", "")
+    local option = LINE_OPTIONS[which]
+    if not option then
+        ns:Print("usage: |cffffd100/ftt lines <name> on|off|r")
+        for key, description in pairs(LINE_OPTIONS) do
+            ns:Print(string.format("  %-16s %-26s %s", key, LINES[key] or "", ns:GetOption(description) and "on" or "off"))
+        end
+        return
+    end
+    value = string.lower(value or "")
+    if value ~= "on" and value ~= "off" then
+        ns:Print(which .. " is " .. (ns:GetOption(option) and "on" or "off") .. ". |cffffd100/ftt lines " .. which .. " on|off|r to change it.")
+        return
+    end
+    ns:SetOption(option, value == "on")
+    ns:Print(which .. ": " .. value .. ".")
 end)
