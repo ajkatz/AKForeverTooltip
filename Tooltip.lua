@@ -364,11 +364,24 @@ local RANGE_BANDS = {
 -- ceiling is 28 yards - which tells a hunter nothing about a shot that reaches 35. IsSpellInRange answers
 -- for the spell you name instead: in, out, or nothing at all when the question does not apply (no target,
 -- a spell you do not know, a friendly unit for a hostile spell). Nothing here is secret.
-local function spellRange(unit)
-    local name = ns:GetOption("rangeSpell")
-    if type(name) ~= "string" or name == "" then
-        return nil
+-- The spells you named, in order. A shaman wants two - a heal that reaches forty yards and a shock
+-- that reaches twenty - and which of them is in range is two different questions about the same unit.
+local function namedSpells()
+    local setting = ns:GetOption("rangeSpell")
+    if type(setting) ~= "string" or setting == "" then
+        return {}
     end
+    local names = {}
+    for part in setting:gmatch("[^,]+") do
+        part = part:match("^%s*(.-)%s*$")
+        if part ~= "" then
+            names[#names + 1] = part
+        end
+    end
+    return names
+end
+
+local function spellRange(unit, name)
     local answer = ns.Readable(_G.IsSpellInRange, name, unit)
     local value = answer and answer[1]
     if value == nil then
@@ -379,17 +392,18 @@ local function spellRange(unit)
     if value == nil then
         return nil -- the question does not apply, and a made-up answer would be worse than none
     end
-    return name, (value == true or value == 1)
+    return (value == true or value == 1)
 end
 
 local function addSpellRange(tooltip, unit)
-    local name, inRange = spellRange(unit)
-    if not name then
-        return
+    for _, name in ipairs(namedSpells()) do
+        local inRange = spellRange(unit, name)
+        if inRange ~= nil then
+            local color = inRange and IN_RANGE_COLOR or OUT_OF_RANGE_COLOR
+            tooltip:AddLine(name .. (inRange and ": in range" or ": out of range"), color[1], color[2], color[3])
+            Tooltip.stats.spellRangeLines = Tooltip.stats.spellRangeLines + 1
+        end
     end
-    local color = inRange and IN_RANGE_COLOR or OUT_OF_RANGE_COLOR
-    tooltip:AddLine(name .. (inRange and ": in range" or ": out of range"), color[1], color[2], color[3])
-    Tooltip.stats.spellRangeLines = Tooltip.stats.spellRangeLines + 1
 end
 
 local function addRange(tooltip, unit)
@@ -688,14 +702,14 @@ ns:RegisterCommand("lines", "which extra lines to show: /ftt lines range off, /f
     ns:Print(which .. ": " .. value .. ".")
 end)
 
-ns:RegisterCommand("range", "the range lines: /ftt range spell Auto Shot names a spell to check exactly, /ftt range spell none drops it", function(rest)
+ns:RegisterCommand("range", "the range lines: /ftt range spell Healing Wave, Earth Shock names spells to check exactly; none drops them", function(rest)
     local word, name = string.match(rest or "", "^%s*(%S*)%s*(.-)%s*$")
     if string.lower(word or "") ~= "spell" then
         local chosen = ns:GetOption("rangeSpell")
         ns:Print("bands: " .. (ns:GetOption("range") and "on" or "off")
             .. " (|cffffd100/ftt lines range on|off|r). The widest the client will answer is 28 yd.")
-        ns:Print("exact spell: " .. (type(chosen) == "string" and chosen ~= "" and ("|cffffd100" .. chosen .. "|r") or "none")
-            .. "  - |cffffd100/ftt range spell Auto Shot|r to name one.")
+        ns:Print("exact spells: " .. (type(chosen) == "string" and chosen ~= "" and ("|cffffd100" .. chosen .. "|r") or "none")
+            .. "  - |cffffd100/ftt range spell Healing Wave, Earth Shock|r to name them (commas between).")
         return
     end
     if name == "" or string.lower(name) == "none" then
@@ -705,5 +719,6 @@ ns:RegisterCommand("range", "the range lines: /ftt range spell Auto Shot names a
     end
     ns:SetOption("rangeSpell", name)
     ns:Print("checking |cffffd100" .. name .. "|r. A spell you do not know, or one that does not apply to what "
-        .. "you are looking at, simply shows no line.")
+        .. "you are looking at, simply shows no line - so a heal and an attack can both be named, and each "
+        .. "shows only where it makes sense.")
 end)
