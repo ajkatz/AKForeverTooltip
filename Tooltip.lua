@@ -171,7 +171,12 @@ end
 --
 -- So a secret unit gets the bare number, in order: health first, then power. Ugly beats stretched -
 -- and the COLOUR carries what the label cannot, which is why it is worth having.
+-- A colour you set beats the one it ships with, always.
 local function colorFor(label, token)
+    local yours = ns.cdb and ns.cdb.colors and ns.cdb.colors[label]
+    if type(yours) == "table" and #yours == 3 then
+        return yours
+    end
     local named = RESOURCE_COLORS[label]
     if named then
         return named
@@ -190,6 +195,8 @@ local function colorFor(label, token)
     end
     return colorCache[key]
 end
+
+Tooltip.ColorFor = function(label, token) return colorFor(label, token) end
 
 local function addResource(tooltip, unit, current, max, label, color)
     color = color or PLAIN
@@ -239,7 +246,7 @@ end
 
 local function addHealth(tooltip, unit)
     addResource(tooltip, unit, rawValue(UnitHealth, unit), rawValue(UnitHealthMax, unit), "hp",
-        RESOURCE_COLORS.hp)
+        colorFor("hp"))
 
     local label, token = powerLabel(unit)
     if not label then
@@ -391,4 +398,38 @@ ns:RegisterCommand("class", "class colours: 'on' (default) / 'off'; 'bar on' / '
     end
     ns:Print("class colours:", ns:GetOption("classColors") and "on" or "off",
         "- health bar:", ns:GetOption("classBar") and "class colour" or "green")
+end)
+
+-- The colour of a line. "hp light" meant a pale grey here and something else to the person who asked
+-- for it, which is the sort of thing worth settling with a command rather than another guess.
+ns:RegisterCommand("color", "the colour of a line: /ftt color hp 66ff66, /ftt color mana 3388ff, or 'default'", function(rest)
+    local which, value = string.match(rest or "", "^%s*(%S*)%s*(%S*)%s*$")
+    which = string.lower(which or "")
+    if which == "" then
+        ns:Print("usage: |cffffd100/ftt color <hp | mana | energy | rage | ...> <hex, or default>|r")
+        for _, key in ipairs({ "hp", "mana", "energy", "rage" }) do
+            local c = ns.Tooltip.ColorFor(key)
+            local hex = string.format("%02x%02x%02x", c[1] * 255, c[2] * 255, c[3] * 255)
+            ns:Print(string.format("  %-8s |cff%s##%s|r%s", key, hex, hex,
+                (ns.cdb.colors and ns.cdb.colors[key]) and "   (yours)" or ""))
+        end
+        return
+    end
+    ns.cdb.colors = ns.cdb.colors or {}
+    if value == "" or string.lower(value) == "default" then
+        ns.cdb.colors[which] = nil
+        ns:Print(which .. ": back to the colour it ships with.")
+        return
+    end
+    local hex = value:gsub("^#", "")
+    if #hex == 3 then
+        hex = hex:gsub("(%x)", "%1%1")
+    end
+    if #hex ~= 6 or hex:find("%X") then
+        ns:Print("that is not a colour. A hex code, like |cffffd100" .. which .. " 66ff66|r.")
+        return
+    end
+    ns.cdb.colors[which] = { tonumber(hex:sub(1, 2), 16) / 255, tonumber(hex:sub(3, 4), 16) / 255,
+        tonumber(hex:sub(5, 6), 16) / 255 }
+    ns:Print(which .. " is now |cff" .. hex .. "##" .. hex .. "|r. Mouse over something to see it.")
 end)
