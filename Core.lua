@@ -204,6 +204,7 @@ local OPTION_DEFAULTS = {
     health = true,       -- a health line on unit tooltips (see Tooltip.lua: a secret one is HANDED over, never read)
     targetOfTarget = true, -- who the unit is hitting ("Targeting: YOU")
     range = true,        -- roughly how far away they are, in the bands the client will answer
+    rangeSpell = false,  -- ... and, for one spell you name, whether it would actually reach
     petMood = true,      -- your own pet's happiness and loyalty
     ids = true,          -- the spell or item id on a spell / item tooltip
 }

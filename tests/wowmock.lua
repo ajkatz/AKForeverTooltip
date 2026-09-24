@@ -267,6 +267,16 @@ function Mock.install(options)
         return limit ~= nil and yards <= limit
     end)
     -- happiness 1-3, damage %, loyalty
+    -- 1 in range, 0 out, nil when the question does not apply (a spell you do not know, no target)
+    global("IsSpellInRange", function(name, unitToken)
+        local ranges = state.spellRanges or {}
+        local reach = ranges[name]
+        local unit = state.units[unitToken]
+        if type(reach) ~= "number" or not unit or type(unit.yards) ~= "number" then
+            return nil
+        end
+        return unit.yards <= reach and 1 or 0
+    end)
     global("GetPetHappiness", function()
         if state.petHappiness == nil then
             return nil

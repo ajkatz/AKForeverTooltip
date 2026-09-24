@@ -388,6 +388,35 @@ scenario("the id on a spell and on an item, and never on a unit", function()
     check(not textsOf():find("spell", 1, true), textsOf())
 end)
 
+scenario("one spell, exactly: in range or out, and silence when the question does not apply", function()
+    local ns, state = start()
+    state.units.player = { name = "You", player = true }
+    state.units.boar = { name = "Boar", player = false, health = 10, healthMax = 10, yards = 30 }
+    state.spellRanges = { ["Auto Shot"] = 35, ["Earth Shock"] = 20 }
+    SlashCmdList.AKFOREVERTOOLTIP("range spell Auto Shot")
+
+    Mock.showUnitTooltip("boar")
+    check(textsOf():find("Auto Shot: in range", 1, true), textsOf())
+    check(textsOf():find("over 28 yd", 1, true), "the band is still there, and still says 28: " .. textsOf())
+
+    -- a shorter spell on the same target
+    SlashCmdList.AKFOREVERTOOLTIP("range spell Earth Shock")
+    GameTooltip.__lines = nil
+    Mock.showUnitTooltip("boar")
+    check(textsOf():find("Earth Shock: out of range", 1, true), textsOf())
+
+    -- a spell the client knows nothing about: no line rather than a guess
+    SlashCmdList.AKFOREVERTOOLTIP("range spell Moonfire")
+    GameTooltip.__lines = nil
+    Mock.showUnitTooltip("boar")
+    check(not textsOf():find("Moonfire", 1, true), textsOf())
+
+    SlashCmdList.AKFOREVERTOOLTIP("range spell none")
+    GameTooltip.__lines = nil
+    Mock.showUnitTooltip("boar")
+    check(not textsOf():find("in range", 1, true), "named none: just the bands")
+end)
+
 Mock.realPrint(string.format("\n%d passed, %d failed", passed, #failures))
 if #failures > 0 then
     os.exit(1)

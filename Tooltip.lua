@@ -79,7 +79,7 @@ Tooltip.stats = { anchored = 0, anchorPath = "not used yet", coloured = 0, notPl
     healthRead = 0,      -- health lines written as text, both numbers readable
     healthHanded = 0,    -- ... and written by handing a SECRET straight to the font string
     healthRefused = 0,   -- ... and the times that was not allowed. See the note above addHealth.
-    targetLines = 0, rangeLines = 0, moodLines = 0, idLines = 0,
+    targetLines = 0, rangeLines = 0, moodLines = 0, idLines = 0, spellRangeLines = 0,
 }
 Tooltip.samples = {} -- the last few unit tooltips, for /ftt diag
 local barColoured = false
@@ -321,6 +321,8 @@ end
 local YOU_COLOR = { 1.00, 0.35, 0.35 }   -- they are hitting YOU
 local THEM_COLOR = { 0.75, 0.75, 0.78 }
 local RANGE_COLOR = { 0.65, 0.70, 0.80 }
+local IN_RANGE_COLOR = { 0.55, 0.85, 0.45 }
+local OUT_OF_RANGE_COLOR = { 0.85, 0.45, 0.40 }
 local MOOD_COLORS = { { 0.90, 0.25, 0.25 }, { 0.95, 0.80, 0.30 }, { 0.55, 0.85, 0.45 } }
 local MOOD_NAMES = { "unhappy", "content", "happy" }
 
@@ -357,6 +359,38 @@ local RANGE_BANDS = {
     { check = 2, text = "within 11 yd" },  -- trade
     { check = 1, text = "within 28 yd" },  -- inspect
 }
+
+-- ONE SPELL, EXACTLY. The bands above are the most CheckInteractDistance will say, and its widest
+-- ceiling is 28 yards - which tells a hunter nothing about a shot that reaches 35. IsSpellInRange answers
+-- for the spell you name instead: in, out, or nothing at all when the question does not apply (no target,
+-- a spell you do not know, a friendly unit for a hostile spell). Nothing here is secret.
+local function spellRange(unit)
+    local name = ns:GetOption("rangeSpell")
+    if type(name) ~= "string" or name == "" then
+        return nil
+    end
+    local answer = ns.Readable(_G.IsSpellInRange, name, unit)
+    local value = answer and answer[1]
+    if value == nil then
+        local modern = C_Spell and C_Spell.IsSpellInRange
+        answer = modern and ns.Readable(modern, name, unit)
+        value = answer and answer[1]
+    end
+    if value == nil then
+        return nil -- the question does not apply, and a made-up answer would be worse than none
+    end
+    return name, (value == true or value == 1)
+end
+
+local function addSpellRange(tooltip, unit)
+    local name, inRange = spellRange(unit)
+    if not name then
+        return
+    end
+    local color = inRange and IN_RANGE_COLOR or OUT_OF_RANGE_COLOR
+    tooltip:AddLine(name .. (inRange and ": in range" or ": out of range"), color[1], color[2], color[3])
+    Tooltip.stats.spellRangeLines = Tooltip.stats.spellRangeLines + 1
+end
 
 local function addRange(tooltip, unit)
     if type(CheckInteractDistance) ~= "function" then
@@ -427,6 +461,7 @@ local function onUnitTooltip(tooltip)
         end
         if ns:GetOption("range") then
             ns.SafeCall(addRange, tooltip, unit)
+            ns.SafeCall(addSpellRange, tooltip, unit)
         end
     end
     if not ns:GetOption("classColors") then
@@ -651,4 +686,24 @@ ns:RegisterCommand("lines", "which extra lines to show: /ftt lines range off, /f
     end
     ns:SetOption(option, value == "on")
     ns:Print(which .. ": " .. value .. ".")
+end)
+
+ns:RegisterCommand("range", "the range lines: /ftt range spell Auto Shot names a spell to check exactly, /ftt range spell none drops it", function(rest)
+    local word, name = string.match(rest or "", "^%s*(%S*)%s*(.-)%s*$")
+    if string.lower(word or "") ~= "spell" then
+        local chosen = ns:GetOption("rangeSpell")
+        ns:Print("bands: " .. (ns:GetOption("range") and "on" or "off")
+            .. " (|cffffd100/ftt lines range on|off|r). The widest the client will answer is 28 yd.")
+        ns:Print("exact spell: " .. (type(chosen) == "string" and chosen ~= "" and ("|cffffd100" .. chosen .. "|r") or "none")
+            .. "  - |cffffd100/ftt range spell Auto Shot|r to name one.")
+        return
+    end
+    if name == "" or string.lower(name) == "none" then
+        ns:SetOption("rangeSpell", false)
+        ns:Print("no spell checked: just the bands.")
+        return
+    end
+    ns:SetOption("rangeSpell", name)
+    ns:Print("checking |cffffd100" .. name .. "|r. A spell you do not know, or one that does not apply to what "
+        .. "you are looking at, simply shows no line.")
 end)
