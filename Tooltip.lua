@@ -232,10 +232,12 @@ end
 
 Tooltip.ColorFor = function(label, token) return colorFor(label, token) end
 
--- `deficit`: also say how much is MISSING. Worth it for health, where it is the number you act on -
--- whether this is worth a heal, and how big a one. Not for a power bar: nobody topped anybody up by
--- 2,970 mana, and the line is longer for nothing.
-local function addResource(tooltip, unit, current, max, label, color, deficit)
+-- WHAT IS MISSING, in brackets, right after the number: "900 hp (-100)". That is the number you act
+-- on - whether this is worth a heal and how big a one - and it reads faster than a percentage, which is
+-- why the percentage gave up its place rather than sitting beside it.
+--
+-- At full there is nothing missing, so the brackets are left off entirely: "1000 hp".
+local function addResource(tooltip, unit, current, max, label, color)
     color = color or PLAIN
     if current == nil then
         return
@@ -247,10 +249,9 @@ local function addResource(tooltip, unit, current, max, label, color, deficit)
         -- what is MISSING, which is the number you act on: whether this is worth a heal, and how big a
         -- one. Left off at full, where "-0" is noise.
         local missing = max - current
-        local text = string.format("%s %s (%d%%)", BreakUpLargeNumbers(current), label,
-            math.floor(current / max * 100 + 0.5))
-        if deficit and missing > 0 then
-            text = text .. "  -" .. BreakUpLargeNumbers(missing)
+        local text = string.format("%s %s", BreakUpLargeNumbers(current), label)
+        if missing > 0 then
+            text = text .. " (-" .. BreakUpLargeNumbers(missing) .. ")"
         end
         tooltip:AddLine(text, color[1], color[2], color[3])
         Tooltip.stats.healthRead = Tooltip.stats.healthRead + 1
@@ -301,7 +302,7 @@ local function addHealth(tooltip, unit)
     else
         color = HEALTH_SCALE[1].color -- no fraction to go on: the healthy end, claiming nothing
     end
-    addResource(tooltip, unit, current, maximum, "hp", color, true)
+    addResource(tooltip, unit, current, maximum, "hp", color)
 
     local label, token = powerLabel(unit)
     if not label then

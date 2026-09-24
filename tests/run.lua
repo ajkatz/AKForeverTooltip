@@ -192,8 +192,8 @@ scenario("health on a unit tooltip: the full line when both numbers can be read"
     Mock.showUnitTooltip("me")
     local lines = GameTooltip.__lines or {}
     equal(#lines, 2, "what it has, and what it runs on")
-    equal(lines[1].text, "700 hp (70%)  -300", "and how much is missing")
-    equal(lines[2].text, "30 mana (1%)", "a resource that is not health gets no deficit")
+    equal(lines[1].text, "700 hp (-300)", "the number, and what is missing from it")
+    equal(lines[2].text, "30 mana (-2970)", "power too")
     equal(lines[2].r, 0.35, "mana is blue"); equal(lines[2].b, 1.00)
     equal(ns.Tooltip.stats.healthRead, 2, "two lines read outright")
     equal(ns.Tooltip.stats.healthHanded, 0)
@@ -224,7 +224,7 @@ scenario("a power type the client will not name gets no line: a label would be a
     state.secretAnswers.UnitPowerType = true
     Mock.showUnitTooltip("me")
     equal(#(GameTooltip.__lines or {}), 1, "health only")
-    equal((GameTooltip.__lines or {})[1].text, "700 hp (70%)  -300")
+    equal((GameTooltip.__lines or {})[1].text, "700 hp (-300)")
 end)
 
 scenario("a creature with no power bar gets no second line", function()
@@ -232,7 +232,7 @@ scenario("a creature with no power bar gets no second line", function()
     state.units.boar2 = { name = "Mottled Boar", player = false, health = 40, healthMax = 40 }
     Mock.showUnitTooltip("boar2")
     equal(#(GameTooltip.__lines or {}), 1)
-    equal((GameTooltip.__lines or {})[1].text, "40 hp (100%)")
+    equal((GameTooltip.__lines or {})[1].text, "40 hp", "at full there is nothing missing to show")
 end)
 
 scenario("RUNIC_POWER reads as 'runic power'", function()
@@ -240,7 +240,7 @@ scenario("RUNIC_POWER reads as 'runic power'", function()
     state.units.dk = { name = "Grim", player = true, class = "WARRIOR",
         health = 10, healthMax = 100, power = 50, powerMax = 100, powerToken = "RUNIC_POWER" }
     Mock.showUnitTooltip("dk")
-    equal((GameTooltip.__lines or {})[2].text, "50 runic power (50%)")
+    equal((GameTooltip.__lines or {})[2].text, "50 runic power (-50)")
 end)
 
 scenario("health the client keeps SECRET is handed to the line's font string, never read", function()
