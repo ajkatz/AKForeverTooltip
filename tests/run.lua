@@ -245,6 +245,7 @@ end)
 
 scenario("health the client keeps SECRET is handed to the line's font string, never read", function()
     local ns, state = start()
+    state.secretFormatting = false -- the stricter world: the bare route is all a client like that leaves
     state.units.them = { name = "Launcelot", player = true, class = "ROGUE",
         health = Mock.SECRET, healthMax = Mock.SECRET }
     Mock.showUnitTooltip("them")
@@ -265,6 +266,135 @@ scenario("a secret current with a readable maximum is still never divided", func
     Mock.showUnitTooltip("pet")
     equal(ns.Tooltip.stats.healthHanded, 1)
     equal(ns.Tooltip.stats.healthRead, 0)
+end)
+
+-- The three rungs. Which one this client is on is not something the tests can settle - only the game
+-- can - so the addon asks, and all three answers have to come out right.
+-- measured in the game: this is the rung this client is actually on
+scenario("... the maximum beside it where sums are refused but the maximum can be read", function()
+    local ns, state = start()
+    state.secretFormatting = true -- but secretArithmetic stays false
+    state.units.me = { name = "Purrdee", player = true, class = "SHAMAN",
+        health = Mock.SECRET, healthMax = 1000 }
+    Mock.showUnitTooltip("me")
+
+    equal(_G["GameTooltipTextLeft" .. #(GameTooltip.__lines or {})].__text, "<SECRET> / 1000 hp",
+        "no subtraction anywhere: both numbers on the line, and the sum left to the reader")
+    equal(ns.Tooltip.stats.healthOfMax, 1)
+end)
+
+scenario("... its label alone when the maximum is secret too", function()
+    local ns, state = start()
+    state.secretFormatting = true
+    state.units.them = { name = "Launcelot", player = true, class = "ROGUE",
+        health = Mock.SECRET, healthMax = Mock.SECRET }
+    Mock.showUnitTooltip("them")
+
+    equal(_G["GameTooltipTextLeft" .. #(GameTooltip.__lines or {})].__text, "<SECRET> hp")
+    equal(ns.Tooltip.stats.healthLabelled, 1)
+    equal(ns.Tooltip.stats.healthOfMax, 0, "there was no maximum to put beside it")
+end)
+
+scenario("... and the bare number where it allows neither, exactly as before", function()
+    local ns, state = start()
+    state.secretFormatting = false -- the stricter world, deliberately
+    state.units.me = { name = "Purrdee", player = true, class = "SHAMAN",
+        health = Mock.SECRET, healthMax = 1000 }
+    Mock.showUnitTooltip("me")
+
+    equal(_G["GameTooltipTextLeft" .. #(GameTooltip.__lines or {})].__text, Mock.SECRET,
+        "handed straight over, as it always was")
+    equal(ns.Tooltip.stats.healthHanded, 1)
+end)
+
+scenario("a maximum that is ALSO secret gets the label but never a made-up deficit", function()
+    local ns, state = start()
+    state.secretArithmetic, state.secretFormatting = true, true
+    state.units.them = { name = "Launcelot", player = true, class = "ROGUE",
+        health = Mock.SECRET, healthMax = Mock.SECRET }
+    Mock.showUnitTooltip("them")
+
+    equal(_G["GameTooltipTextLeft" .. #(GameTooltip.__lines or {})].__text, "<SECRET> hp")
+    equal(ns.Tooltip.stats.healthOfMax, 0, "and nothing to put beside it either")
+end)
+
+scenario("the client is asked what it allows once, not once per tooltip", function()
+    local ns, state = start()
+    state.secretFormatting = true
+    state.units.them = { name = "Launcelot", player = true, class = "ROGUE",
+        health = Mock.SECRET, healthMax = Mock.SECRET }
+
+    -- a secret maximum cannot answer the deficit question, so it stays open ...
+    Mock.showUnitTooltip("them")
+    local asked = 0
+    local made = UIParent.CreateFontString
+    UIParent.CreateFontString = function(...) asked = asked + 1; return made(...) end
+
+    -- ... and a readable one closes it, after which nothing is asked again
+    state.units.pet = { name = "Wolf", player = false, health = Mock.SECRET, healthMax = 587 }
+    for _ = 1, 5 do Mock.showUnitTooltip("pet") end
+    equal(asked, 0, "the font string it asks on is made once and kept")
+    equal(ns.Tooltip.stats.healthLabelled + ns.Tooltip.stats.healthOfMax, 6)
+    equal(#Mock.errors, 0, "and nothing raised along the way")
+end)
+
+scenario("what the client answered about secrets reaches the saved file, and is plain enough to save", function()
+    local ns, state = start()
+    state.secretFormatting = true -- this client will format a secret, but will not do sums on one
+    state.units.pet = { name = "Wolf", player = false, health = Mock.SECRET, healthMax = 587 }
+
+    equal(ns.Tooltip.secretRules.formatsASecret, "not asked yet", "nothing is claimed before a secret turns up")
+    Mock.showUnitTooltip("pet")
+    equal(ns.Tooltip.secretRules.formatsASecret, "yes")
+
+
+    -- and it survives into the snapshot, as strings: a nil would simply vanish from the saved file
+    SlashCmdList.AKFOREVERTOOLTIP("diag")
+    equal(AKForeverTooltipDB.diag.client.secretRules.formatsASecret, "yes")
+
+end)
+
+scenario("a blocked action arrives with the trace of the tooltip that caused it: which one, whose, which steps", function()
+    local ns, state = start()
+    state.units.me = { name = "Purr Gola", player = true, class = "SHAMAN", health = 300, healthMax = 1000 }
+    state.inCombat = true
+    Mock.showUnitTooltip("me")
+
+    -- the client speaks up after the handler has returned, naming only the addon and "UNKNOWN()"
+    Mock.fire("ADDON_ACTION_BLOCKED", "AKForeverTooltip", "UNKNOWN()")
+
+    local entry = ns.blockedActions[1]
+    check(entry, "recorded")
+    check(entry.trace:find("unit post-call on GameTooltip (owner UIParent, combat)", 1, true), entry.trace)
+    check(entry.trace:find("name colour", 1, true), "the colour step is in it")
+    check(entry.trace:find("health AddLine", 1, true), "and the health line")
+    check(entry.before[1] and entry.before[1]:find("default anchor", 1, true), "the anchor hook ran just before it")
+
+    -- and it is plain enough to save
+    SlashCmdList.AKFOREVERTOOLTIP("diag")
+    check(AKForeverTooltipDB.diag.blockedActions[1].trace:find("unit post-call", 1, true))
+end)
+
+scenario("no arithmetic on a secret, anywhere, ever - a refused one is a blocked action, dialog and all", function()
+    -- the mock's SECRET raises on arithmetic like the game does; here it also COUNTS the attempts
+    local ns, state = start()
+    local attempts = 0
+    local meta = getmetatable(Mock.SECRET)
+    local originalSub = meta.__sub
+    meta.__sub = function(...) attempts = attempts + 1; return originalSub(...) end
+    state.secretFormatting = true
+
+    -- every shape of unit the addon ever meets, hovered twice each
+    state.units.me = { name = "Purrdee", player = true, class = "SHAMAN", health = Mock.SECRET, healthMax = 1000 }
+    state.units.them = { name = "Launcelot", player = true, class = "ROGUE", health = Mock.SECRET, healthMax = Mock.SECRET }
+    state.units.pet = { name = "Wolf", player = false, health = Mock.SECRET, healthMax = 587 }
+    for _ = 1, 2 do
+        for _, unit in ipairs({ "me", "them", "pet" }) do Mock.showUnitTooltip(unit) end
+    end
+    meta.__sub = originalSub
+
+    equal(attempts, 0, "not once, not even inside pcall, not even to find out")
+    equal(#Mock.errors, 0)
 end)
 
 scenario("health can be switched off, and then nothing is added at all", function()

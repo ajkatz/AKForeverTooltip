@@ -40,9 +40,12 @@ local RESOURCE_COLORS = {
 -- the number is worth a glance rather than just being there. Three stops, mixed between, because two
 -- stops (green straight to red) passes through a muddy brown in the middle.
 --
--- It only works where the numbers can be READ: a fraction needs current divided by maximum. A unit whose
--- health the client keeps secret has no fraction to colour by, so it takes the whole-and-healthy end and
--- stays there - and the colour then carries no meaning it has not earned.
+-- It only works where the numbers can be READ: a fraction needs current divided by maximum.
+-- What a health value is coloured when there is no fraction to colour it BY. It must not be green: a
+-- secret value tells us nothing about how hurt they are, and green says "whole" to anyone looking at it.
+-- Grey claims nothing, which is the truth of the situation.
+local UNKNOWN_HEALTH = { 0.72, 0.72, 0.75 }
+
 local HEALTH_SCALE = {
     { at = 1.00, color = { 0.55, 0.85, 0.45 } }, -- whole
     { at = 0.50, color = { 0.95, 0.80, 0.30 } }, -- amber
@@ -79,6 +82,8 @@ Tooltip.stats = { anchored = 0, anchorPath = "not used yet", coloured = 0, notPl
     healthRead = 0,      -- health lines written as text, both numbers readable
     healthHanded = 0,    -- ... and written by handing a SECRET straight to the font string
     healthRefused = 0,   -- ... and the times that was not allowed. See the note above addHealth.
+    healthOfMax = 0,     -- ... secret, beside a maximum that could be read: "900 hp of 1,000"
+    healthLabelled = 0,  -- ... secret, and carrying a label but no deficit
     targetLines = 0, rangeLines = 0, moodLines = 0, idLines = 0, spellRangeLines = 0,
 }
 Tooltip.samples = {} -- the last few unit tooltips, for /ftt diag
@@ -87,7 +92,12 @@ local barColoured = false
 ------------------------------------------------------------------------
 -- 1. At the mouse
 ------------------------------------------------------------------------
-local function onDefaultAnchor(tooltip)
+-- (parent - the frame that asked for the tooltip - is passed but unused. An attempt on 2026-09-24 to
+-- leave a PROTECTED owner's tooltip alone in combat parked every world tooltip in the corner instead,
+-- because UIParent is itself protected - and did not stop the blocked-action dialog it was meant to,
+-- so SetAnchorType was not the blocked call. Whatever is, the client's taint log will name it.)
+local function onDefaultAnchor(tooltip, parent)
+    ns.BeginTrace("default anchor", tooltip)
     local anchorType = ANCHOR_TYPES[ns:GetOption("anchor")]
     if not anchorType or type(tooltip) ~= "table" then
         return -- "default": Blizzard's corner
@@ -96,6 +106,7 @@ local function onDefaultAnchor(tooltip)
         Tooltip.stats.anchorPath = "this client's tooltip has no SetAnchorType - left in Blizzard's corner"
         return
     end
+    ns.Step("SetAnchorType")
     if anchorType == "ANCHOR_CURSOR" then
         tooltip:SetAnchorType(anchorType) -- (centred above the cursor: takes no offsets)
     else
@@ -133,6 +144,7 @@ local function restoreBar(tooltip)
     if barColoured then
         local bar = statusBarOf(tooltip)
         if bar then
+            ns.Step("restore bar colour")
             bar:SetStatusBarColor(HEALTH_GREEN[1], HEALTH_GREEN[2], HEALTH_GREEN[3])
         end
         barColoured = false
@@ -181,6 +193,67 @@ end
 -- (We are inside AddTooltipPostCall, which is Blizzard's sanctioned hook and runs behind their taint
 -- barrier - the same reason the class colours are applied from here and not from a SetOwner hook.)
 ------------------------------------------------------------------------
+
+-- WHAT THIS CLIENT ALLOWS A SECRET NUMBER TO DO, found out rather than assumed.
+--
+-- A secret may be HANDED to a widget but never read, so "900 hp (-100)" looks impossible: the deficit
+-- needs a subtraction and the brackets need a join, and both are reading. Two things might not be:
+--
+--   * SetFormattedText does its formatting inside the widget, in C. The secret never passes through a
+--     Lua string operation, so a label and brackets may be able to travel alongside it.
+--   * (there used to be a second question here - whether a readable maximum minus a secret current is
+--     allowed - asked once a session inside pcall. taint.log 2026-09-24 22:55:33: "An attempt to perform
+--     arithmetic on a secret value was blocked because of taint from AKForeverTooltip - Tooltip.lua:262".
+--     A refused operation on a secret is a BLOCKED ACTION with the "Interface action failed" dialog, not
+--     a Lua error pcall can swallow. Never arithmetic on a secret: not inside pcall, not once, not to find
+--     out. The answer was measured anyway: no.)
+--
+-- The one question is asked once, on a font string nobody can see, the first time a secret turns up;
+-- the answer stands for the session.
+local allows = { label = nil }
+
+-- the same answers in a form that survives into the saved file
+Tooltip.secretRules = { formatsASecret = "not asked yet" }
+local function recordRules()
+    if allows.label == nil then
+        Tooltip.secretRules.formatsASecret = "not asked yet"
+    else
+        Tooltip.secretRules.formatsASecret = allows.label and "yes" or "no"
+    end
+end
+
+local probeText
+local function hiddenFontString()
+    if probeText == nil then
+        local ok, made = pcall(function()
+            return UIParent:CreateFontString(nil, "BACKGROUND", "GameFontNormal")
+        end)
+        probeText = (ok and type(made) == "table" and made) or false
+        if probeText then
+            pcall(probeText.Hide, probeText)
+        end
+    end
+    return probeText or nil
+end
+
+local function askWhatIsAllowed(current, max)
+    if allows.label ~= nil then
+        return allows
+    end
+    local probe = hiddenFontString()
+    if not probe or type(probe.SetFormattedText) ~= "function" then
+        allows.label = false
+        recordRules()
+        return allows
+    end
+    if allows.label == nil then
+        -- handing a secret to a widget is the sanctioned path; asking whether the widget will format it
+        -- involves no operation ON the secret, so this one may be asked
+        allows.label = pcall(probe.SetFormattedText, probe, "%s", current) and true or false
+    end
+    recordRules()
+    return allows
+end
 
 -- The value itself, not ns.Readable's verdict on it: a secret is exactly what we want to keep here.
 local function rawValue(fn, ...)
@@ -253,6 +326,7 @@ local function addResource(tooltip, unit, current, max, label, color)
         if missing > 0 then
             text = text .. " (-" .. BreakUpLargeNumbers(missing) .. ")"
         end
+        ns.Step("health AddLine (readable)")
         tooltip:AddLine(text, color[1], color[2], color[3])
         Tooltip.stats.healthRead = Tooltip.stats.healthRead + 1
         return
@@ -260,6 +334,7 @@ local function addResource(tooltip, unit, current, max, label, color)
 
     -- added EMPTY, then the number goes onto the font string the tooltip just made for it. The line
     -- keeps the colour AddLine gave it, so a secret number is still told apart by it.
+    ns.Step("health AddLine (empty, for a secret)")
     tooltip:AddLine(" ", color[1], color[2], color[3])
     local lines = rawValue(tooltip.NumLines, tooltip)
     local fontString = type(lines) == "number" and _G[(tooltip:GetName() or "") .. "TextLeft" .. lines]
@@ -267,12 +342,45 @@ local function addResource(tooltip, unit, current, max, label, color)
         Tooltip.stats.healthRefused = Tooltip.stats.healthRefused + 1
         return
     end
+    -- the best of these this client will take: the number with its label and what is MISSING, the
+    -- number with its label, or - as it has always been - the number on its own.
+    ns.Step("health SetFormattedText/SetText on " .. label .. " line")
+    local can = askWhatIsAllowed(current, max)
+    local safeLabel = string.gsub(label, "%%", "%%%%")
+    local readableMax = type(max) == "number" and not ns.IsSecret(max)
+
+    -- No subtraction allowed - but the maximum is an ordinary number and the widget will take the
+    -- secret beside it, so both go on the line and the sum is left to whoever reads it.
+    --
+    -- Written "900 / 1,000 hp" rather than "900 hp of 1,000". The two say the same thing, but at full
+    -- health the second reads as padding - "1000 hp of 1000" looks like the addon had nothing to add -
+    -- while the first is just how a health bar has always been written and reads normally at any value.
+    -- We cannot tell full health from any other: that needs current compared with maximum, which is the
+    -- one thing we may not do. So the format has to be the one that reads well without knowing.
+    if can.label and readableMax and pcall(fontString.SetFormattedText, fontString,
+        "%s / " .. string.gsub(BreakUpLargeNumbers(max), "%%", "%%%%") .. " " .. safeLabel, current) then
+        Tooltip.stats.healthOfMax = Tooltip.stats.healthOfMax + 1
+        Tooltip.stats.healthHanded = Tooltip.stats.healthHanded + 1
+        return
+    end
+
+    if can.label and pcall(fontString.SetFormattedText, fontString, "%s " .. safeLabel, current) then
+        Tooltip.stats.healthLabelled = Tooltip.stats.healthLabelled + 1
+        Tooltip.stats.healthHanded = Tooltip.stats.healthHanded + 1
+        return
+    end
+
     if pcall(fontString.SetText, fontString, current) then
         Tooltip.stats.healthHanded = Tooltip.stats.healthHanded + 1
     else
         Tooltip.stats.healthRefused = Tooltip.stats.healthRefused + 1
     end
 end
+
+-- (A route used to live here that read your own health from an ordinary event handler, on the theory
+-- that the value was secret only inside the tooltip's taint barrier. MEASURED 2026-09-24, build 70009:
+-- 1437 of 1437 such reads were secret. Health is secret in every context an addon reaches. It cost a
+-- lookup per UNIT_HEALTH event for nothing, so it is gone; /ftt probe asks again on demand.)
 
 -- What a unit runs on: "MANA" -> "mana", "RUNIC_POWER" -> "runic power". nil when the client will not
 -- name it, because a label would then be a guess.
@@ -300,7 +408,7 @@ local function addHealth(tooltip, unit)
         and type(current) == "number" and type(maximum) == "number" and maximum > 0 then
         color = healthColor(current / maximum)
     else
-        color = HEALTH_SCALE[1].color -- no fraction to go on: the healthy end, claiming nothing
+        color = UNKNOWN_HEALTH -- the client will not say how hurt they are, so neither do we
     end
     addResource(tooltip, unit, current, maximum, "hp", color)
 
@@ -338,6 +446,7 @@ local function addTargetOfTarget(tooltip, unit)
     end
     local isYou = ns.Readable(UnitIsUnit, theirTarget, "player")
     if isYou and isYou[1] == true then
+        ns.Step("target line")
         tooltip:AddLine("Targeting: YOU", YOU_COLOR[1], YOU_COLOR[2], YOU_COLOR[3])
         Tooltip.stats.targetLines = Tooltip.stats.targetLines + 1
         return
@@ -346,6 +455,7 @@ local function addTargetOfTarget(tooltip, unit)
     if not (name and type(name[1]) == "string" and name[1] ~= "") then
         return -- the client will not say who: better nothing than "Targeting: someone"
     end
+    ns.Step("target line")
     tooltip:AddLine("Targeting: " .. name[1], THEM_COLOR[1], THEM_COLOR[2], THEM_COLOR[3])
     Tooltip.stats.targetLines = Tooltip.stats.targetLines + 1
 end
@@ -401,6 +511,7 @@ local function addSpellRange(tooltip, unit)
         local inRange = spellRange(unit, name)
         if inRange ~= nil then
             local color = inRange and IN_RANGE_COLOR or OUT_OF_RANGE_COLOR
+            ns.Step("spell range line")
             tooltip:AddLine(name .. (inRange and ": in range" or ": out of range"), color[1], color[2], color[3])
             Tooltip.stats.spellRangeLines = Tooltip.stats.spellRangeLines + 1
         end
@@ -425,6 +536,7 @@ local function addRange(tooltip, unit)
             answered = true
         end
         if value == true then
+            ns.Step("range line")
             tooltip:AddLine(band.text, RANGE_COLOR[1], RANGE_COLOR[2], RANGE_COLOR[3])
             Tooltip.stats.rangeLines = Tooltip.stats.rangeLines + 1
             return
@@ -433,6 +545,7 @@ local function addRange(tooltip, unit)
     if not answered then
         return
     end
+    ns.Step("range line")
     tooltip:AddLine("over 28 yd", RANGE_COLOR[1], RANGE_COLOR[2], RANGE_COLOR[3])
     Tooltip.stats.rangeLines = Tooltip.stats.rangeLines + 1
 end
@@ -455,11 +568,13 @@ local function addPetMood(tooltip, unit)
     if type(loyalty) == "number" and loyalty > 0 then
         text = text .. "  (loyalty " .. loyalty .. ")"
     end
+    ns.Step("mood line")
     tooltip:AddLine(text, color[1], color[2], color[3])
     Tooltip.stats.moodLines = Tooltip.stats.moodLines + 1
 end
 
 local function onUnitTooltip(tooltip)
+    ns.BeginTrace("unit post-call", tooltip)
     if tooltip ~= GameTooltip then
         return
     end
@@ -508,11 +623,13 @@ local function onUnitTooltip(tooltip)
     end
     local name = _G[(tooltip:GetName() or "") .. "TextLeft1"]
     if type(name) == "table" and type(name.SetTextColor) == "function" then
+        ns.Step("name colour")
         name:SetTextColor(r, g, b)
     end
     if ns:GetOption("classBar") then
         local bar = statusBarOf(tooltip)
         if bar then
+            ns.Step("bar colour")
             bar:SetStatusBarColor(r, g, b)
             barColoured = true
         end
@@ -536,6 +653,8 @@ local function addID(tooltip, data, what)
     if ns.IsSecret(id) or type(id) ~= "number" then
         return
     end
+    ns.BeginTrace(what .. " post-call", tooltip)
+    ns.Step("id line")
     tooltip:AddLine(what .. " " .. id, ID_COLOR[1], ID_COLOR[2], ID_COLOR[3])
     Tooltip.stats.idLines = Tooltip.stats.idLines + 1
 end
@@ -547,8 +666,10 @@ Tooltip.hooks = { anchor = false, unit = false, spell = false, item = false }
 
 ns:Listen("LOGIN", function()
     if type(hooksecurefunc) == "function" and type(_G.GameTooltip_SetDefaultAnchor) == "function" then
-        hooksecurefunc("GameTooltip_SetDefaultAnchor", function(tooltip)
-            ns.SafeCall(onDefaultAnchor, tooltip)
+        -- (tooltip, parent): the parent is the frame that asked for the tooltip, and in combat it decides
+        -- whether re-anchoring is allowed at all - drop it and every owner looks protected
+        hooksecurefunc("GameTooltip_SetDefaultAnchor", function(tooltip, parent)
+            ns.SafeCall(onDefaultAnchor, tooltip, parent)
         end)
         Tooltip.hooks.anchor = true
     end
@@ -618,6 +739,13 @@ ns:RegisterCommand("health", "health on unit tooltips: 'on' (default) / 'off'. A
         ns:Print("usage: /ftt health on | off   (now: " .. (ns:GetOption("health") and "on" or "off") .. ")")
         ns:Print(string.format("lines written: %d read outright, %d by handing over a secret, %d refused.",
             stats.healthRead, stats.healthHanded, stats.healthRefused))
+        ns:Print(string.format("of the secret ones: %d beside a readable maximum, %d with a label alone, %d bare.",
+            stats.healthOfMax, stats.healthLabelled,
+            math.max(0, stats.healthHanded - stats.healthOfMax - stats.healthLabelled)))
+        ns:Print("inside the tooltip this client " .. (allows.label and "DOES" or "does not")
+            .. " let a widget format a secret. Arithmetic on a secret is never attempted: it is a blocked "
+            .. "action on this client, dialog and all, even inside pcall.")
+
         if stats.healthRefused > 0 and stats.healthHanded == 0 then
             ns:Print("this client will not take a secret on a tooltip line - |cffffd100/ftt health off|r stops it trying.")
         end
@@ -723,3 +851,4 @@ ns:RegisterCommand("range", "the range lines: /ftt range spell Healing Wave, Ear
         .. "you are looking at, simply shows no line - so a heal and an attack can both be named, and each "
         .. "shows only where it makes sense.")
 end)
+

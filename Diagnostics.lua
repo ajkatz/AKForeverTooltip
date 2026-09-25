@@ -69,6 +69,9 @@ function Diagnostics:Collect()
             postCalls = type(TooltipDataProcessor) == "table" and type(TooltipDataProcessor.AddTooltipPostCall) or "no TooltipDataProcessor",
             unitDataType = Enum and Enum.TooltipDataType and Enum.TooltipDataType.Unit,
             classColorTable = type(RAID_CLASS_COLORS),
+            -- asked of the client itself, the first time a secret number turned up
+            secretRules = ns.Tooltip.secretRules,
+
         },
         errors = {},
         blockedActions = ns.blockedActions,

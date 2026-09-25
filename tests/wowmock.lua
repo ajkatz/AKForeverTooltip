@@ -16,7 +16,20 @@ local Mock = {}
 local REAL_PRINT = print
 local ADDON = "AKForeverTooltip"
 
-Mock.SECRET = setmetatable({}, { __tostring = function() return "<SECRET>" end })
+-- Arithmetic on a secret raises here, as it does in the game. But the game's message reads
+-- "... while execution tainted by <addon>", which leaves open that it is allowed somewhere - so the
+-- mock can be told to play the permissive world too, where a sum involving a secret gives a secret
+-- back. Neither world is assumed by the addon; it finds out which one it is in.
+local secretMeta = { __tostring = function() return "<SECRET>" end }
+Mock.SECRET = setmetatable({}, secretMeta)
+for _, op in ipairs({ "__add", "__sub", "__mul", "__div" }) do
+    secretMeta[op] = function()
+        if Mock.state and Mock.state.secretArithmetic then
+            return Mock.SECRET
+        end
+        error("attempt to perform arithmetic on a secret number value", 2)
+    end
+end
 
 local function violation(text)
     Mock.taintViolations[#Mock.taintViolations + 1] = text
@@ -25,6 +38,7 @@ end
 ------------------------------------------------------------------------
 -- Widgets
 ------------------------------------------------------------------------
+local newWidget -- defined below; the factory methods above it need the name
 local methods = {}
 
 function methods.SetScript(self, name, fn) self.__scripts[name] = fn end
@@ -39,10 +53,44 @@ function methods.SetTextColor(self, r, g, b) self.__textColor = { r, g, b } end
 -- A font string takes whatever it is handed, secret or not, and never looks at it - which is the one
 -- route a secret number has onto a tooltip line.
 function methods.SetText(self, text) self.__text = text end
+-- The formatting happens inside the widget, in C, so a secret never passes through a Lua string
+-- operation on the way. Whether the client allows that is exactly what is in question, so the mock
+-- can refuse it, or allow it - and allows it by default, because that is what the game was measured
+-- to do (2026-09-24). A scenario that wants the stricter world says so.
+function methods.SetFormattedText(self, format, ...)
+    local count = select("#", ...)
+    local args = { ... }
+    for index = 1, count do
+        if args[index] == Mock.SECRET and not (Mock.state and Mock.state.secretFormatting) then
+            error("attempt to format a secret number value", 2)
+        end
+        args[index] = tostring(args[index])
+    end
+    self.__text = string.format(format, (table.unpack or unpack)(args, 1, count))
+    self.__formatted = format
+end
 function methods.GetText(self) return self.__text end
+-- A protected frame is a secure button or one of Blizzard's own; nothing the mock makes is, unless a
+-- scenario says so. Two results, as the real one gives.
+function methods.IsProtected(self) return self.__protected == true, self.__protected == true end
+-- Enough of a frame to build a small on-screen readout: geometry and textures are recorded, not drawn.
+function methods.SetSize(self, w, h) self.__width, self.__height = w, h end
+function methods.SetPoint(self, ...) self.__point = { ... } end
+function methods.SetAllPoints(self, target) self.__allPoints = target end
+function methods.ClearAllPoints(self) self.__point = nil end
+function methods.SetFrameStrata(self, strata) self.__strata = strata end
+function methods.EnableMouse(self, on) self.__mouse = on end
+function methods.SetColorTexture(self, r, g, b, a) self.__color = { r, g, b, a } end
+function methods.SetHighlightTexture(self, texture) self.__highlight = texture end
+function methods.RegisterForClicks(self, ...) self.__clicks = { ... } end
+function methods.Show(self) self.__shown = true end
+function methods.Hide(self) self.__shown = false end
+function methods.IsShown(self) return self.__shown == true end
+function methods.CreateTexture(self, name) return newWidget("Texture", name) end
+function methods.CreateFontString(self, name) return newWidget("FontString", name) end
 function methods.SetStatusBarColor(self, r, g, b) self.__barColor = { r, g, b } end
 
-local function newWidget(kind, name)
+function newWidget(kind, name)
     return setmetatable({ __kind = kind, __name = name, __scripts = {}, __events = {} }, { __index = methods })
 end
 
@@ -54,6 +102,7 @@ function tooltipMethods.SetOwner(self, owner, anchorType, x, y)
     end
     self.__owner, self.__anchorType, self.__offsetX, self.__offsetY = owner, anchorType, x or 0, y or 0
 end
+function tooltipMethods.GetOwner(self) return self.__owner end
 function tooltipMethods.SetAnchorType(self, anchorType, x, y)
     self.__anchorType, self.__offsetX, self.__offsetY = anchorType, x or 0, y or 0
 end
@@ -187,6 +236,11 @@ function Mock.install(options)
     local state = {
         inCombat = false,
         secretAnswers = {}, -- [function name] = true: it answers with a secret
+        secretArithmetic = false, -- does a sum involving a secret give a secret, or raise?
+
+        secretFormatting = true,  -- a widget formats a secret into its own text: MEASURED 2026-09-24, 876/876 lines
+        healthPercentReadable = false, -- UnitHealthPercent: a plain number, or (as measured) a secret?
+        healthPercentRaw = nil,        -- ... and the number it gives when readable
         units = {},         -- [token] = { name, player = true/false, class = "ROGUE" }
         playerName = options.playerName or "Purrdee",
     }
@@ -231,8 +285,22 @@ function Mock.install(options)
         return frame
     end)
     global("UIParent", newWidget("Frame", "UIParent"))
+    _G.UIParent.CreateFontString = function(_, name) return newWidget("FontString", name) end
 
     -- Units ---------------------------------------------------------------
+    -- A value that is secret only behind the barrier. Outside it the plain number comes back, which
+    -- is the whole of what is being tested.
+    local function healthAnswer(name, read)
+        global(name, function(unitToken)
+            if state.secretAnswers[name] then
+                return Mock.SECRET
+            end
+            local unit = state.units[unitToken]
+            local value = read(unit)
+            return value
+        end)
+    end
+
     local function unitAnswer(name, read)
         global(name, function(unit)
             if state.secretAnswers[name] then
@@ -244,7 +312,24 @@ function Mock.install(options)
     unitAnswer("UnitExists", function(unit) return unit ~= nil end)
     -- health comes back SECRET for anyone but you, and for a pet the current is secret while the
     -- maximum is not: both shapes are in the error reports this was written from
-    unitAnswer("UnitHealth", function(unit) return unit and unit.health end)
+    -- one creature, one name. Secret for units whose identity the client is protecting.
+    global("UnitGUID", function(unitToken)
+        if state.secretAnswers.UnitGUID then
+            return Mock.SECRET
+        end
+        local unit = state.units[unitToken]
+        return unit and ("GUID-" .. tostring(unit.name or unitToken)) or nil
+    end)
+    -- Percent of health, optionally through a curve of the caller's. Secret on this client unless a test
+    -- says otherwise; the curve is ignored here until a rung is built on it.
+    global("UnitHealthPercent", function(unit, usePredicted, curve)
+        if state.healthPercentReadable then
+            return state.healthPercentRaw or 90
+        end
+        return Mock.SECRET
+    end)
+    healthAnswer("UnitHealth", function(unit) return unit and unit.health end)
+    healthAnswer("UnitHealthMax", function(unit) return unit and unit.healthMax end)
     -- is this unit that unit? (the token pair, not the table)
     global("UnitIsUnit", function(a, b)
         if state.secretAnswers.UnitIsUnit then
@@ -283,7 +368,6 @@ function Mock.install(options)
         end
         return state.petHappiness, 100, state.petLoyalty
     end)
-    unitAnswer("UnitHealthMax", function(unit) return unit and unit.healthMax end)
     global("BreakUpLargeNumbers", function(value) return tostring(value) end)
     unitAnswer("UnitPower", function(unit) return unit and unit.power end)
     unitAnswer("UnitPowerMax", function(unit) return unit and unit.powerMax end)

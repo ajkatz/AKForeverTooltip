@@ -46,6 +46,41 @@ Known limit: a world tooltip that Blizzard sends to the corner fades out when yo
 at the mouse it now does that while following the cursor for a moment. Hiding it at once would mean
 calling `Hide` from addon code (see above); tell me if it bothers you and I will look for a clean way.
 
+## Health, and what a secret number is allowed to say
+
+Where both numbers can be read a health line says what is missing, because that is the number you act
+on - whether this is worth a heal, and how big a one:
+
+```
+700 hp (-300)
+```
+
+Where the client keeps a value **secret** it may be handed to a widget but never read, and a deficit
+needs a subtraction while brackets need a join - both of which are reading. That looks like the end of
+it, but two things might not be:
+
+* `SetFormattedText` does its formatting inside the widget, in C, so a secret never passes through a Lua
+  string operation on the way;
+* the arithmetic error this client raises says *"... while execution tainted by <addon>"*, which leaves
+  open that a readable maximum minus a secret current is allowed in some execution.
+
+Rather than assume either way, the addon **asks** - once per session, on a font string nobody can see,
+the first time a secret actually turns up - and then always shows the best of these the client allowed:
+
+```
+700 hp (-300)     both numbers readable: the number and what is missing from it
+900 / 1,000 hp    current secret, maximum readable: both on the line, the sum left to the reader
+900 hp            maximum secret too: the number with its label
+900               a stricter client: the bare number, handed straight over
+```
+
+There is no deficit and no percentage on a secret line, and there will not be. Subtracting from a secret
+is a **blocked action** on this client - the "Interface action failed because of an AddOn" dialog - even
+inside `pcall`, even asked once to find out (taint.log, 2026-09-24). The client gives no readable
+percentage either. What is shown is what the client will say, and no more.
+
+`/ftt health` says which rung this client is on and how many lines went out by each route.
+
 ## Development
 
 ```

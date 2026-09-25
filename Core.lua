@@ -178,11 +178,61 @@ end
 ------------------------------------------------------------------------
 ns.blockedActions = {}
 
+-- THE TRACE. Each hook or post-call opens one - which tooltip, whose, in combat or not - and every
+-- frame-touching step it takes is appended by name. A blocked-action event arrives after the handler
+-- that caused it has returned, so when one comes the whole trace of the tooltip in progress (and the few
+-- before it) is attached: the blocked call is one of those steps, which is a short list to check against
+-- the client's taint log rather than a guess.
+ns.trace = { steps = {}, tooltip = "?", owner = "?", combat = false }
+ns.recentTraces = {}
+
+local function nameOf(frame)
+    if type(frame) ~= "table" then
+        return type(frame)
+    end
+    local name = ns.Readable(frame.GetName, frame)
+    return (name and type(name[1]) == "string") and name[1] or "(unnamed)"
+end
+
+function ns.BeginTrace(what, tooltip)
+    local previous = ns.trace
+    if previous and #previous.steps > 0 then
+        ns.recentTraces[#ns.recentTraces + 1] = previous
+        while #ns.recentTraces > 6 do
+            table.remove(ns.recentTraces, 1)
+        end
+    end
+    local owner = type(tooltip) == "table" and ns.Readable(tooltip.GetOwner, tooltip)
+    ns.trace = {
+        what = what, steps = {},
+        tooltip = nameOf(tooltip),
+        owner = owner and nameOf(owner[1]) or "(owner unreadable)",
+        combat = InCombatLockdown() and true or false,
+    }
+end
+
+function ns.Step(step)
+    local trace = ns.trace
+    trace.steps[#trace.steps + 1] = step
+end
+
+local function flatten(trace)
+    if not trace then
+        return nil
+    end
+    return string.format("%s on %s (owner %s, %s): %s", trace.what or "?", trace.tooltip, trace.owner,
+        trace.combat and "combat" or "no combat", table.concat(trace.steps, " > "))
+end
+
 local function onActionBlocked(event, addonName, functionName)
     if addonName ~= ADDON_NAME then
         return
     end
-    local entry = { event = event, fn = tostring(functionName), combat = InCombatLockdown() and true or false }
+    local entry = { event = event, fn = tostring(functionName), combat = InCombatLockdown() and true or false,
+        trace = flatten(ns.trace), before = {} }
+    for index = #ns.recentTraces, 1, -1 do
+        entry.before[#entry.before + 1] = flatten(ns.recentTraces[index])
+    end
     ns.blockedActions[#ns.blockedActions + 1] = entry
     ns:Log("action_blocked", entry)
 end
