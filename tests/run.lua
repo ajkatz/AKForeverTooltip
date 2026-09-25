@@ -90,19 +90,24 @@ scenario("a tooltip sent to Blizzard's corner follows the mouse instead - by cha
     -- (the runner fails this scenario if SetOwner / ClearLines / Show / Hide were ever called by the addon)
 end)
 
-scenario("a player's name and the health bar take the class colour; creatures keep Blizzard's colours", function()
+scenario("a player's name takes the class colour, the health bar only when asked; creatures keep Blizzard's colours", function()
     local ns = start()
     Mock.showUnitTooltip("rogue")
     equal(color(GameTooltipTextLeft1, "__textColor"), "1.00 0.96 0.41", "rogue yellow")
-    equal(color(GameTooltipStatusBar, "__barColor"), "1.00 0.96 0.41")
+    equal(color(GameTooltipStatusBar, "__barColor"), "0.00 1.00 0.00",
+        "the bar stays Blizzard's green by default: recoloured, it flickers under a unit frame (Blizzard repaints it green on every refresh)")
     equal(GameTooltip.__anchorType, "ANCHOR_CURSOR_RIGHT", "and it is at the mouse")
+
+    SlashCmdList.AKFOREVERTOOLTIP("class bar on") -- for those who want it anyway
+    Mock.showUnitTooltip("rogue")
+    equal(color(GameTooltipStatusBar, "__barColor"), "1.00 0.96 0.41", "asked for: the bar takes the class colour")
     Mock.showUnitTooltip("shaman")
     equal(color(GameTooltipTextLeft1, "__textColor"), "0.00 0.44 0.87", "shaman blue")
 
     Mock.showUnitTooltip("boar") -- (its class is a SECRET: not player-controlled)
     equal(color(GameTooltipTextLeft1, "__textColor"), "1.00 1.00 1.00", "Blizzard's colour stands")
     equal(color(GameTooltipStatusBar, "__barColor"), "0.00 1.00 0.00", "the bar is green again")
-    equal(ns.Tooltip.stats.coloured, 2); equal(ns.Tooltip.stats.notPlayers, 1)
+    equal(ns.Tooltip.stats.coloured, 3, "the rogue twice (green bar, then coloured) and the shaman"); equal(ns.Tooltip.stats.notPlayers, 1)
 
     -- another tooltip showing a unit is not ours to colour: "the unit under the mouse" says nothing about it
     Mock.showUnitTooltip("rogue", ItemRefTooltip)

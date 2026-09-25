@@ -2,16 +2,18 @@
 
 Two tooltip fixes for **World of Warcraft: Forever** (Interface `16001`).
 
-Status: **v0.1.0 (2026-09-20) - works in the game**: first report - 84 tooltips sent to the mouse through `SetAnchorType`, 51 players class-coloured, 0 errors, 0 blocked actions. 5 scenarios against a mock of Blizzard's
+Status: **v0.2.0 (2026-09-25)** - health and power lines, target-of-target, range, pet mood and ids added since the
+first report; the tooltip's health bar is no longer class-coloured by default (it flickered under a unit frame).
+v0.1.0 (2026-09-20), the first report - 84 tooltips sent to the mouse through `SetAnchorType`, 51 players class-coloured, 0 errors, 0 blocked actions. 5 scenarios against a mock of Blizzard's
 tooltip code; 10 of 10 deliberate breakages of the addon are caught by them.
 
 | | |
 |---|---|
 | **At the mouse** | every tooltip that would go to the bottom right corner (creatures and players in the world, and whatever in the UI asks for "the default spot") follows the mouse instead |
-| **Class colours** | a player's name - and the tooltip's health bar - in the colour of their class. Creatures keep Blizzard's colours |
+| **Class colours** | a player's name in the colour of their class - and, if you ask (`/ftt class bar on`), the tooltip's health bar too. Creatures keep Blizzard's colours |
 | `/ftt anchor right\|left\|cursor\|default` | right of the mouse (default), left of it, centred above it, or Blizzard's corner |
 | `/ftt offset <x> <y>` | distance from the mouse for `right` / `left` (default `16 8`) |
-| `/ftt class on\|off`, `/ftt class bar on\|off` | class colours; health bar in the class colour or Blizzard's green |
+| `/ftt class on\|off`, `/ftt class bar on\|off` | class colours; the health bar in the class colour or Blizzard's green (green by default: a recoloured bar flickers under a unit frame, which repaints it green several times a second) |
 | `/ftt diag` | a report into the settings file (then `/reload`) |
 
 Settings are account-wide. There is no Blizzard option for this on Forever: its UI code has a
@@ -37,7 +39,7 @@ fails a scenario on each of those.
 **Class colours.** `TooltipDataProcessor.AddTooltipPostCall(Enum.TooltipDataType.Unit, ...)` is
 Blizzard's sanctioned hook for addons: it runs the callback behind a taint barrier after a unit tooltip
 was built. There the unit under the mouse (that covers unit frames too) is looked up and, for a
-**player**, the name line and the health bar get the class colour - two widget calls with plain
+**player**, the name line - and, with `class bar on`, the health bar - get the class colour - two widget calls with plain
 numbers; no tooltip text is read or written. `UnitClass` is only secret for units that are not
 player-controlled, and any unreadable answer simply means no colour. Only the game tooltip itself is
 coloured, not other tooltips that happen to show a unit.

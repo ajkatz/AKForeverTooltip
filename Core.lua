@@ -250,7 +250,10 @@ local OPTION_DEFAULTS = {
     offsetX = 16,        -- ... and how far from the cursor ("right" / "left" only)
     offsetY = 8,
     classColors = true,  -- a player's name in the colour of their class
-    classBar = true,     -- ... and the tooltip's health bar too
+    -- ... but NOT the tooltip's health bar by default: Blizzard repaints that bar green on every refresh,
+    -- and a unit frame under the mouse refreshes its tooltip several times a second, so a coloured bar
+    -- flickers green there (seen 2026-09-25 on the player frame). /ftt class bar on, for those who want it.
+    classBar = false,
     health = true,       -- a health line on unit tooltips (see Tooltip.lua: a secret one is HANDED over, never read)
     targetOfTarget = true, -- who the unit is hitting ("Targeting: YOU")
     range = true,        -- roughly how far away they are, in the bands the client will answer
