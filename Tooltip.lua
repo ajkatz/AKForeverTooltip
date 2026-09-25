@@ -85,6 +85,7 @@ Tooltip.stats = { anchored = 0, anchorPath = "not used yet", coloured = 0, notPl
     healthOfMax = 0,     -- ... secret, beside a maximum that could be read: "900 hp of 1,000"
     healthLabelled = 0,  -- ... secret, and carrying a label but no deficit
     targetLines = 0, rangeLines = 0, moodLines = 0, idLines = 0, spellRangeLines = 0,
+    rangeSkippedInCombat = 0, -- CheckInteractDistance is a blocked action in a fight: not asked there
 }
 Tooltip.samples = {} -- the last few unit tooltips, for /ftt diag
 local barColoured = false
@@ -520,6 +521,14 @@ end
 
 local function addRange(tooltip, unit)
     if type(CheckInteractDistance) ~= "function" then
+        return
+    end
+    -- MEASURED (taint.log 2026-09-24 23:13:31): CheckInteractDistance during combat lockdown is a
+    -- BLOCKED ACTION on this client - "An action was blocked in combat because of taint" and the dialog,
+    -- pcall or not. The band line simply goes without in a fight; the exact-spell line below does not
+    -- use this call and stays.
+    if InCombatLockdown and InCombatLockdown() then
+        Tooltip.stats.rangeSkippedInCombat = (Tooltip.stats.rangeSkippedInCombat or 0) + 1
         return
     end
     local isYou = ns.Readable(UnitIsUnit, unit, "player")

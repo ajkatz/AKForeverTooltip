@@ -474,6 +474,30 @@ scenario("how far away, in the bands the client is willing to answer", function(
     check(not textsOf():find("yd", 1, true))
 end)
 
+scenario("in a fight the range bands are not asked for at all - that call is a blocked action", function()
+    local ns, state = start()
+    state.units.boar = { name = "Mottled Boar", player = false, yards = 5 }
+
+    Mock.showUnitTooltip("boar")
+    local function rangeLines()
+        local n = 0
+        for _, line in ipairs(GameTooltip.__lines or {}) do
+            if type(line.text) == "string" and line.text:find(" yd", 1, true) then n = n + 1 end
+        end
+        return n
+    end
+    check(rangeLines() > 0, "out of a fight the band line is there")
+    equal(#Mock.taintViolations, 0)
+
+    state.inCombat = true
+    GameTooltip.__lines = {} -- the mock keeps lines across hovers; the game rebuilds the tooltip
+    Mock.showUnitTooltip("boar")
+    equal(rangeLines(), 0, "in a fight it is simply absent")
+    equal(#Mock.taintViolations, 0, "and the client was never asked")
+    equal(ns.Tooltip.stats.rangeSkippedInCombat, 1)
+    equal(#Mock.errors, 0)
+end)
+
 scenario("your own pet's mood, and only your own pet's", function()
     local ns, state = start()
     state.units.wolf = { name = "Wolf", player = false, health = 500, healthMax = 500 }

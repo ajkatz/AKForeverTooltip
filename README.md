@@ -81,6 +81,14 @@ percentage either. What is shown is what the client will say, and no more.
 
 `/ftt health` says which rung this client is on and how many lines went out by each route.
 
+## Range in a fight
+
+The range-band line (`within 10 / 11 / 28 yd`) comes from `CheckInteractDistance`, which is a **blocked
+action** during combat lockdown on this client - the "Interface action failed because of an AddOn"
+dialog, caught or not (taint.log, 2026-09-24 23:13). So the band line is simply absent in a fight, and
+counted (`rangeSkippedInCombat` in `/ftt diag`). The exact-spell line (`IsSpellInRange`) carries no such
+restriction and keeps working mid-fight, which is when it earns its keep.
+
 ## Development
 
 ```

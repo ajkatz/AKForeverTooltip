@@ -340,6 +340,11 @@ function Mock.install(options)
     end)
     -- the client answers range in BANDS, not yards: 1 inspect (~28), 2 trade (~11), 3 duel (~10)
     global("CheckInteractDistance", function(unitToken, index)
+        if state.inCombat then
+            -- MEASURED 2026-09-24: a blocked action in combat lockdown, dialog and all, pcall or not
+            violation("CheckInteractDistance called in combat: a blocked action on this client")
+            return nil
+        end
         if state.secretAnswers.CheckInteractDistance then
             return Mock.SECRET
         end
