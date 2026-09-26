@@ -4,6 +4,8 @@
 ## Notes: The game tooltip follows your mouse instead of sitting in the corner, and says what Blizzard leaves out: health and power with the deficit and a colour that tracks the damage, who the unit is targeting, how far away they are, whether a spell you name would reach, your pet's mood, and the spell or item id. Players' names take their class colour. Every line can be switched off, and every one stays silent rather than guessing when the client will not answer.
 ## Author: Purrdee
 ## X-License: MIT
+## X-Wago-ID: kGr9ygKy
+## X-Curse-Project-ID: 1712182
 ## IconTexture: Interface\AddOns\AKForeverTooltip\icon
 ## SavedVariables: AKForeverTooltipDB
 ## OptionalDeps: AKForeverTooltip_SavedState
