@@ -576,6 +576,70 @@ scenario("one spell, exactly: in range or out, and silence when the question doe
     check(not textsOf():find("in range", 1, true), "named none: just the bands")
 end)
 
+-- The character's profile ------------------------------------------------------------------------------------
+-- Since client build 1.60.1.70170 (Oct 1 2026) the surname sits where the realm used to be: UnitFullName("player")
+-- answers "Purrdee", "Bubson" instead of "Purrdee Bubson", "ClassicBetaPvE". The profile key must not care.
+scenario("one profile per character: the full name and the realm, the same on the old client and on build 70170", function()
+    equal(start({ surname = "Bubson" }).characterKey, "Purrdee Bubson - TestRealm", "the old client: the name slot full, the realm slot the realm")
+    equal(start({ surname = "Bubson", freshLogin = true }).characterKey, "Purrdee Bubson - TestRealm", "a fresh login on the old client: no realm slot yet")
+    local ns = start({ surname = "Bubson", build70170 = true })
+    equal(ns.characterKey, "Purrdee Bubson - TestRealm", "build 70170: the surname in the realm slot")
+    equal(ns.cdb, AKForeverTooltipDB.chars["Purrdee Bubson - TestRealm"], "the profile sits in the account-wide table")
+    equal(start({ surname = "Bubson", build70170 = true, normalizedRealm = false }).characterKey, "Purrdee Bubson - TestRealm", "no GetNormalizedRealmName: GetRealmName() squeezed")
+    equal(start().characterKey, "Purrdee - TestRealm", "no surname: name and realm")
+end)
+
+scenario("a cold login: no name when the addon loads; the profile is bound at PLAYER_LOGIN and never saved as Unknown", function()
+    local ns = start({ surname = "Bubson", build70170 = true, coldLogin = true })
+    equal(ns.characterKey, "Purrdee Bubson - TestRealm")
+    equal(ns.cdb, AKForeverTooltipDB.chars["Purrdee Bubson - TestRealm"], "bound to the saved table")
+    local keys = {}
+    for key in pairs(AKForeverTooltipDB.chars) do
+        keys[#keys + 1] = key
+    end
+    equal(#keys, 1, "one profile and no 'Unknown - TestRealm': " .. table.concat(keys, ", "))
+end)
+
+scenario("profiles under older spellings are adopted once: this profile keeps its values, the others fill its gaps and go", function()
+    local db = { chars = {
+        ["Purrdee Bubson - TestRealm"] = { options = { fromOld = "old" }, place = { x = 1 } },
+        ["Purrdee - Bubson"] = { options = { fromOld = "new", fromNew = "new" }, place = { x = 2, y = 2 } },
+        ["Purrdee Bubson - Test Realm"] = { options = { fromOld = "spaced", fromNew = "spaced", fromSpaced = "spaced" }, place = { w = 4 } },
+        ["Unknown - TestRealm"] = { options = { fromOld = "cold", fromNew = "cold", fromCold = "cold" }, place = { y = 3, z = 3 }, extra = { deep = true } },
+    } }
+    local ns = start({ surname = "Bubson", build70170 = true, db = db })
+    equal(ns.characterKey, "Purrdee Bubson - TestRealm")
+    local cdb = ns.cdb
+    equal(cdb, db.chars["Purrdee Bubson - TestRealm"])
+    equal(cdb.options.fromOld, "old", "the long-standing profile wins")
+    equal(cdb.options.fromNew, "new", "the build-70170 profile fills gaps before the others")
+    equal(cdb.options.fromSpaced, "spaced"); equal(cdb.options.fromCold, "cold")
+    equal(cdb.place.x, 1); equal(cdb.place.y, 2); equal(cdb.place.w, 4); equal(cdb.place.z, 3, "filled down into nested tables")
+    equal(cdb.extra.deep, true)
+    equal(db.chars["Purrdee - Bubson"], nil, "the older spellings are gone")
+    equal(db.chars["Purrdee Bubson - Test Realm"], nil); equal(db.chars["Unknown - TestRealm"], nil)
+    local logged
+    for _, entry in ipairs(ns.sessionLog) do
+        if entry.k == "profile" then
+            logged = entry.d
+        end
+    end
+    check(logged and logged.key == "Purrdee Bubson - TestRealm", "the adoption is in the session log")
+    equal(logged.adopted[1], "Purrdee - Bubson"); equal(logged.adopted[2], "Purrdee Bubson - Test Realm"); equal(logged.adopted[3], "Unknown - TestRealm")
+
+    -- a character first seen on build 70170 keeps that profile, under the full key
+    local alt = start({ playerName = "Stabby", surname = "Bubson", build70170 = true,
+        db = { chars = { ["Stabby - Bubson"] = { options = { fromNew = "new" } } } } })
+    equal(alt.characterKey, "Stabby Bubson - TestRealm")
+    equal(alt.cdb.options.fromNew, "new"); equal(AKForeverTooltipDB.chars["Stabby - Bubson"], nil)
+
+    -- an alt logging in afterwards finds nothing to adopt and leaves the first character's profile alone
+    local other = start({ playerName = "Stabby", surname = "Bubson", build70170 = true, db = db })
+    equal(other.characterKey, "Stabby Bubson - TestRealm")
+    equal(next(other.cdb.options), nil, "an empty profile of its own")
+    equal(db.chars["Purrdee Bubson - TestRealm"].options.fromOld, "old")
+end)
+
 Mock.realPrint(string.format("\n%d passed, %d failed", passed, #failures))
 if #failures > 0 then
     os.exit(1)

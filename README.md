@@ -97,5 +97,9 @@ restriction and keeps working mid-fight, which is when it earns its keep.
 lua tests/run.lua
 ```
 
-`tools/Install-SavedStateBridge.ps1` installs the saved-settings bridge (the 1.60.1 beta client writes
-SavedVariables but never reads them back).
+Settings come back on your next login; the per-character ones are keyed by the character's full name and
+realm. Client build 1.60.1.70170 (Oct 1 2026) reads addon settings back again; it also moved a character's
+surname into the realm slot of `UnitName`, which split profiles for a day. Profiles saved under either
+spelling, and those of a cold login, are folded into one the first time each character logs in (`/ftt diag`
+says what was adopted). `tools/Install-SavedStateBridge.ps1` installed the saved-settings bridge the earlier
+beta builds needed; it is only kept for `-Remove`.

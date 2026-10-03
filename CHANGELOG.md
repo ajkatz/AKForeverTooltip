@@ -1,5 +1,17 @@
 # AKForeverTooltip
 
+## 0.2.1
+
+- **Settings follow the character again.** Client build 1.60.1.70170 (Oct 1 2026) moved a character's
+  surname into the realm slot of `UnitName`, so every character started a fresh, empty profile. The profile
+  is now keyed by the full name and the realm (`Purrdee Bubson - ClassicBetaPvE`, the spelling the older
+  builds saved under) and bound at PLAYER_LOGIN, when the client knows the name for sure, so a cold login no
+  longer lands in an `Unknown` profile. Profiles saved under the other spellings are folded into it the
+  first time each character logs in: the long-standing profile keeps its values, the others fill its gaps,
+  and `/ftt diag` says what was adopted.
+- The same client build reads saved settings back again, so the saved-settings bridge
+  (`tools/Install-SavedStateBridge.ps1`) is no longer needed and `-Remove` takes it out.
+
 ## 0.2.0 - first public release
 
 For **World of Warcraft: Forever** (1.60.1, Interface 16001).
