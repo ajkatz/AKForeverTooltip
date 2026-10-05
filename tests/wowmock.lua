@@ -459,7 +459,7 @@ function Mock.install(options)
     end
     if not options.noPostCalls then
         local postCalls = {}
-        global("Enum", { TooltipDataType = { Item = 0, Spell = 1, Unit = 2 } })
+        global("Enum", { TooltipDataType = { Item = 0, Spell = 1, Unit = 2, Object = 4 } })
         global("TooltipDataProcessor", {
             AddTooltipPostCall = function(dataType, fn)
                 postCalls[dataType] = postCalls[dataType] or {}
@@ -479,6 +479,14 @@ function Mock.install(options)
             tooltip = tooltip or G.GameTooltip
             for _, fn in ipairs(postCalls[G.Enum.TooltipDataType.Item] or {}) do
                 fn(tooltip, { type = G.Enum.TooltipDataType.Item, id = id })
+            end
+        end
+
+        -- a world object's tooltip: Blizzard's lines come with the data, the first being the name
+        function Mock.showObjectTooltip(name, tooltip)
+            tooltip = tooltip or G.GameTooltip
+            for _, fn in ipairs(postCalls[G.Enum.TooltipDataType.Object] or {}) do
+                fn(tooltip, { type = G.Enum.TooltipDataType.Object, lines = { { leftText = name } } })
             end
         end
 

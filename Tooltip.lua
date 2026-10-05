@@ -671,7 +671,7 @@ end
 ------------------------------------------------------------------------
 -- Wiring
 ------------------------------------------------------------------------
-Tooltip.hooks = { anchor = false, unit = false, spell = false, item = false }
+Tooltip.hooks = { anchor = false, unit = false, spell = false, item = false, object = false }
 
 ns:Listen("LOGIN", function()
     if type(hooksecurefunc) == "function" and type(_G.GameTooltip_SetDefaultAnchor) == "function" then
@@ -696,6 +696,15 @@ ns:Listen("LOGIN", function()
                 Tooltip.hooks[what] = true
             end
         end
+    end
+
+    -- a camp object standing in the world: its own kind of tooltip
+    local objectType = kinds and kinds.Object
+    if TooltipDataProcessor and TooltipDataProcessor.AddTooltipPostCall and objectType ~= nil and ns.Camp then
+        TooltipDataProcessor.AddTooltipPostCall(objectType, function(tooltip, data)
+            ns.SafeCall(ns.Camp.AddObject, tooltip, data)
+        end)
+        Tooltip.hooks.object = true
     end
 
     local unitType = Enum and Enum.TooltipDataType and Enum.TooltipDataType.Unit

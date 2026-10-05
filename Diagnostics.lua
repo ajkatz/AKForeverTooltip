@@ -62,6 +62,7 @@ function Diagnostics:Collect()
         },
         hooks = ns.Tooltip.hooks,
         stats = ns.Tooltip.stats,
+        camp = ns.Camp and ns.Camp.Describe() or nil,
         samples = ns.Tooltip.samples,
         client = {
             setAnchorType = type(tooltip) == "table" and type(tooltip.SetAnchorType),

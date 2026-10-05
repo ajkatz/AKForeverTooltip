@@ -127,11 +127,42 @@ function Camp.Words(id)
     return text
 end
 
+-- the objects by name, for the ones standing at a camp
+local BY_NAME = {}
+for id, object in pairs(OBJECTS) do
+    BY_NAME[object.name] = BY_NAME[object.name] or id
+end
+
+-- a string the addon may look at: not empty, not a secret value
+local function readableString(value)
+    if type(value) ~= "string" or value == "" or ns.IsSecret(value) then
+        return nil
+    end
+    return value
+end
+
+Camp.stats = { items = 0, objects = 0, lines = 0, last = {} }
+
+local function remember(what)
+    local last = Camp.stats.last
+    last[#last + 1] = what
+    if #last > 12 then
+        table.remove(last, 1)
+    end
+end
+
+local function addLine(tooltip, words)
+    ns.Step("camp line")
+    tooltip:AddLine(words, LINE_COLOR[1], LINE_COLOR[2], LINE_COLOR[3], true)
+    Camp.stats.lines = Camp.stats.lines + 1
+end
+
 -- the post-call on an item tooltip: the id arrives in the data, as Blizzard hands it over
 function Camp.Add(tooltip, data)
     if tooltip ~= GameTooltip or not ns:GetOption("camp") then
         return
     end
+    Camp.stats.items = Camp.stats.items + 1
     local id = type(data) == "table" and data.id or nil
     if ns.IsSecret(id) or type(id) ~= "number" then
         return
@@ -141,7 +172,36 @@ function Camp.Add(tooltip, data)
         return
     end
     ns.BeginTrace("camp post-call", tooltip)
-    ns.Step("camp line")
-    tooltip:AddLine(words, LINE_COLOR[1], LINE_COLOR[2], LINE_COLOR[3], true)
-    Camp.lines = (Camp.lines or 0) + 1
+    remember({ item = id })
+    addLine(tooltip, words)
+end
+
+-- the post-call on a world object's tooltip - the tent, the lute, the kit standing at a camp: the data
+-- carries the lines Blizzard built, the first being the object's name; the name is matched, nothing else read
+function Camp.AddObject(tooltip, data)
+    if tooltip ~= GameTooltip or not ns:GetOption("camp") then
+        return
+    end
+    Camp.stats.objects = Camp.stats.objects + 1
+    local lines = type(data) == "table" and data.lines or nil
+    local first = type(lines) == "table" and lines[1] or nil
+    local name = type(first) == "table" and readableString(first.leftText) or nil
+    if not name then
+        return
+    end
+    local id = BY_NAME[name]
+    if not id then
+        return
+    end
+    local words = Camp.Words(id)
+    if not words then
+        return
+    end
+    ns.BeginTrace("camp object post-call", tooltip)
+    remember({ object = name })
+    addLine(tooltip, words)
+end
+
+function Camp.Describe()
+    return { items = Camp.stats.items, objects = Camp.stats.objects, lines = Camp.stats.lines, last = Camp.stats.last, known = (function() local n = 0 for _ in pairs(OBJECTS) do n = n + 1 end return n end)() }
 end

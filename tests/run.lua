@@ -578,6 +578,20 @@ scenario("a camp object's tooltip says the buff it brings; an upgrade names the 
     GameTooltip.__lines = nil
     Mock.showItemTooltip(6529)
     check(not textsOf():find("Camp", 1, true) and textsOf():find("item 6529", 1, true), textsOf())
+    -- the object standing at a camp: its tooltip is a world object's, known by its name
+    GameTooltip.__lines = nil
+    Mock.showObjectTooltip("Camp Tent")
+    check(textsOf():find("Camp: rested experience up to 5% of a level, once an hour", 1, true), textsOf())
+    GameTooltip.__lines = nil
+    Mock.showObjectTooltip("Enchanted Lute")
+    check(textsOf():find("Camp buff: 308 Armor, 13 to all stats and 22 to all resistances at 60", 1, true) and textsOf():find("instead of Mark of the Wild", 1, true), textsOf())
+    GameTooltip.__lines = nil
+    Mock.showObjectTooltip("Copper Vein")
+    check(not textsOf():find("Camp", 1, true), textsOf())
+    GameTooltip.__lines = nil
+    Mock.showObjectTooltip(Mock.SECRET)
+    check(not textsOf():find("Camp", 1, true), "a secret name is not looked at")
+    equal(ns.Camp.Describe().objects, 4); check(ns.Camp.Describe().lines >= 2)
     -- switched off
     SlashCmdList.AKFOREVERTOOLTIP("lines camp off")
     GameTooltip.__lines = nil
