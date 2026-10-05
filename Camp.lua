@@ -22,20 +22,40 @@ ns.Camp = Camp
 local LINE_COLOR = { 0.62, 0.86, 0.60 }
 local NOTE_COLOR = { 0.66, 0.66, 0.66 }
 
--- the first-tier objects: what they give, the most of it (level 60), the class buff they stand in for
+-- the first-tier objects: what they give, the most of it (level 60), the class buff they stand in for -
+-- with that buff's spell (its icon is asked of the client) and the icon's file as a fallback
 local BUFFS = {
-    ["Mana Well"]        = { gives = "29 Mana every 5 sec", scales = true, copies = "Blessing of Wisdom", profession = "Alchemy" },
-    ["Sharpening Wheel"] = { gives = "34 Strength", scales = true, copies = "Strength of Earth Totem", profession = "Blacksmithing" },
-    ["Enchanted Lute"]   = { gives = "308 Armor, 13 to all stats and 22 to all resistances", scales = true, copies = "Mark of the Wild", profession = "Enchanting" },
+    ["Mana Well"]        = { gives = "29 Mana every 5 sec", scales = true, copies = "Blessing of Wisdom", spell = 19742, icon = "Spell_Holy_SealOfWisdom", profession = "Alchemy" },
+    ["Sharpening Wheel"] = { gives = "34 Strength", scales = true, copies = "Strength of Earth Totem", spell = 8075, icon = "Spell_Nature_EarthBindTotem", profession = "Blacksmithing" },
+    ["Enchanted Lute"]   = { gives = "308 Armor, 13 to all stats and 22 to all resistances", scales = true, copies = "Mark of the Wild", spell = 1126, icon = "Spell_Nature_Regeneration", profession = "Enchanting" },
     ["Reagent Bot"]      = { does = "a reagent vendor for everyone at camp", profession = "Engineering" },
     ["Camp Tent"]        = { does = "rested experience up to 5% of a level, once an hour", profession = "Leatherworking" },
-    ["Faction Banner"]   = { gives = "32 Spirit, for your own faction only", scales = true, copies = "Divine Spirit", profession = "Tailoring" },
-    ["Lodestone"]        = { gives = "90 melee Attack Power", scales = true, copies = "Blessing of Might", profession = "Mining" },
-    ["Incense Candle"]   = { gives = "25 Intellect", scales = true, copies = "Arcane Intellect", profession = "Herbalism" },
-    ["Camp Chair"]       = { gives = "2% critical strike chance", copies = "Moonkin Aura", profession = "Skinning" },
-    ["Fish Bowl"]        = { gives = "8% to all stats", copies = "Blessing of Kings", profession = "Fishing" },
-    ["First Aid Kit"]    = { gives = "56 Stamina", scales = true, copies = "Power Word: Fortitude", profession = "First Aid" },
+    ["Faction Banner"]   = { gives = "32 Spirit, for your own faction only", scales = true, copies = "Divine Spirit", spell = 14752, icon = "Spell_Holy_DivineSpirit", profession = "Tailoring" },
+    ["Lodestone"]        = { gives = "90 melee Attack Power", scales = true, copies = "Blessing of Might", spell = 19740, icon = "Spell_Holy_FistOfJustice", profession = "Mining" },
+    ["Incense Candle"]   = { gives = "25 Intellect", scales = true, copies = "Arcane Intellect", spell = 1459, icon = "Spell_Holy_MagicalSentry", profession = "Herbalism" },
+    ["Camp Chair"]       = { gives = "2% critical strike chance", copies = "Moonkin Aura", spell = 24907, icon = "Spell_Nature_MoonGlow", profession = "Skinning" },
+    ["Fish Bowl"]        = { gives = "8% to all stats", copies = "Blessing of Kings", spell = 20217, icon = "Spell_Magic_GreaterBlessingofKings", profession = "Fishing" },
+    ["First Aid Kit"]    = { gives = "56 Stamina", scales = true, copies = "Power Word: Fortitude", spell = 1243, icon = "Spell_Holy_WordFortitude", profession = "First Aid" },
 }
+
+-- the class buff's icon, inline: the client's texture for its spell when it answers, the file otherwise
+local function iconOf(buff)
+    local texture
+    if buff.spell and type(C_Spell) == "table" and type(C_Spell.GetSpellTexture) == "function" then
+        local answer = ns.Readable(C_Spell.GetSpellTexture, buff.spell)
+        local t = answer and answer[1]
+        if (type(t) == "number" or (type(t) == "string" and t ~= "")) and not ns.IsSecret(t) then
+            texture = t
+        end
+    end
+    if not texture and buff.icon then
+        texture = "Interface\\Icons\\" .. buff.icon
+    end
+    if not texture then
+        return ""
+    end
+    return "|T" .. tostring(texture) .. ":16:16:0:0:64:64:4:60:4:60|t "
+end
 
 -- every object by item id: its name, the skill it asks (20, 140, 300), the first-tier object whose buff it
 -- keeps (`base`), and what it does besides
@@ -224,7 +244,7 @@ function Camp.Lines(id)
             add(head .. buff.gives)
         end
         if buff.copies then
-            add("Instead of " .. buff.copies .. " - the two do not stack", true)
+            add("Does not stack with: " .. iconOf(buff) .. buff.copies, true)
         end
         if object.does then
             add("Also: " .. object.does, true)

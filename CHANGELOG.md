@@ -6,7 +6,7 @@
   Banner, Mana Well and the rest, the upgrades that stand on them (Spinning Wheel, Anvil, Fishing
   Rack...), the campfires and the blueprints - gets a line: the buff it gives everyone who sits by the
   fire **at your level** (read from the client's own words for your character) and at level 60, and the
-  class buff it stands in for (a camp buff and the class buff it copies do not stack). An upgrade's own
+  class buff it does not stack with, shown by its icon - one thought a line. An upgrade's own
   tooltip only says "all the benefits of a Faction Banner"; the line says what those are. The line is on
   the item in your bags, on the blueprint that teaches it, and on the object standing at the camp.
   `/ftt lines camp off` drops it. The 38 items are known by their ids, the objects by their names;

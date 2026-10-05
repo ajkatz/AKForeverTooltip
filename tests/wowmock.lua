@@ -472,9 +472,11 @@ function Mock.install(options)
             if not s then return nil end
             return s[1], s[2]
         end)
+        state.spellTextures = state.spellTextures or {} -- [spellID] = file id
         global("C_Spell", {
             GetSpellDescription = function(spellID) return state.spellDescriptions[spellID] or "" end,
             RequestLoadSpellData = function(spellID) state.requestedSpells[#state.requestedSpells + 1] = spellID end,
+            GetSpellTexture = function(spellID) return state.spellTextures[spellID] end,
         })
         global("TooltipDataProcessor", {
             AddTooltipPostCall = function(dataType, fn)
