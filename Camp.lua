@@ -42,9 +42,9 @@ local BUFFS = {
 local function iconOf(buff)
     local texture
     if buff.spell and type(C_Spell) == "table" and type(C_Spell.GetSpellTexture) == "function" then
-        local answer = ns.Readable(C_Spell.GetSpellTexture, buff.spell)
+        local answer = ns.Readable(C_Spell.GetSpellTexture, buff.spell) -- nil when any answer is secret
         local t = answer and answer[1]
-        if (type(t) == "number" or (type(t) == "string" and t ~= "")) and not ns.IsSecret(t) then
+        if type(t) == "number" or (type(t) == "string" and t ~= "") then
             texture = t
         end
     end
@@ -136,16 +136,17 @@ for id, object in pairs(OBJECTS) do
     end
 end
 
--- a string the addon may look at: not empty, not a secret value
+-- a string the addon may look at: not a secret value (asked FIRST - comparing a secret string with
+-- anything is the forbidden act; a world object's name is one in a fight), a string, not empty
 local function readableString(value)
-    if type(value) ~= "string" or value == "" or ns.IsSecret(value) then
+    if ns.IsSecret(value) or type(value) ~= "string" or value == "" then
         return nil
     end
     return value
 end
 
 local function readableNumber(value)
-    if type(value) ~= "number" or ns.IsSecret(value) then
+    if ns.IsSecret(value) or type(value) ~= "number" then
         return nil
     end
     return value
