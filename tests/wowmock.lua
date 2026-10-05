@@ -460,6 +460,9 @@ function Mock.install(options)
     if not options.noPostCalls then
         local postCalls = {}
         global("Enum", { TooltipDataType = { Item = 0, Spell = 1, Unit = 2, Object = 4 } })
+        -- the character's level, and the game's highest
+        global("UnitLevel", function(unit) return unit == "player" and (state.level or 30) or 0 end)
+        global("GetMaxLevelForPlayerExpansion", function() return 60 end)
         -- an item's Use spell, and the words of a spell as the client resolves them for this character
         state.itemSpells = state.itemSpells or {}        -- [itemID] = { name, spellID }
         state.spellDescriptions = state.spellDescriptions or {} -- [spellID] = text ("" = not loaded yet)

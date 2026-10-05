@@ -4,11 +4,11 @@
 -- Forever's campfires: a cook builds one, players add objects from their professions, and whoever sits by
 -- the fire for a minute keeps their buffs for an hour. An object's own tooltip names its buff only at the
 -- first tier ("gain 32 increased melee Attack Power, mutually exclusive with Blessing of Might"); the
--- upgrades that stand on it say "provides all the benefits of a Lodestone" and no more. This adds one line
--- to every camp object: the buff as it is AT YOUR LEVEL (the client resolves the first-tier item's Use
+-- upgrades that stand on it say "provides all the benefits of a Lodestone" and no more. This adds a few
+-- short lines to every camp object: the buff AT YOUR LEVEL (the client resolves the first-tier item's Use
 -- text for your character; it is read through GetItemSpell and C_Spell.GetSpellDescription), the most it
--- gives at level 60, and the class buff it stands in for - a camp buff and the class buff it copies do not
--- stack.
+-- gives at the game's highest level (left out once you are there), the class buff it stands in for - a
+-- camp buff and the class buff it copies do not stack - and what an upgrade does besides.
 --
 -- The objects are known by their item ids (Forever's item database, build 1.60.1.70205) and, standing at
 -- a camp, by their names; the level-60 values are ForeverChanges' reading of the same build. Blizzard's
@@ -20,7 +20,7 @@ local Camp = {}
 ns.Camp = Camp
 
 local LINE_COLOR = { 0.62, 0.86, 0.60 }
-local DIM = "|cff9d9d9d"
+local NOTE_COLOR = { 0.66, 0.66, 0.66 }
 
 -- the first-tier objects: what they give, the most of it (level 60), the class buff they stand in for
 local BUFFS = {
@@ -124,6 +124,23 @@ local function readableString(value)
     return value
 end
 
+local function readableNumber(value)
+    if type(value) ~= "number" or ns.IsSecret(value) then
+        return nil
+    end
+    return value
+end
+
+local function playerLevel()
+    local answer = ns.Readable(UnitLevel, "player")
+    return answer and readableNumber(answer[1]) or nil
+end
+
+local function maxLevel()
+    local answer = ns.Readable(GetMaxLevelForPlayerExpansion)
+    return (answer and readableNumber(answer[1])) or 60
+end
+
 ------------------------------------------------------------------------
 -- The buff at your level: the first-tier item's Use spell, whose words the client resolves for your
 -- character ("... to gain 32 increased melee Attack Power, mutually exclusive with ..."). Not loaded yet
@@ -169,48 +186,74 @@ function Camp.Now(baseItemID)
 end
 
 ------------------------------------------------------------------------
--- The words
+-- The lines: short ones, each its own, so that nothing wraps into a blurb
 ------------------------------------------------------------------------
-function Camp.Words(id)
+-- -> a list of { text, note = true for the dimmer ones }, or nil for an item that is no camp object
+function Camp.Lines(id)
     local taught = BLUEPRINTS[id]
     local object = OBJECTS[taught or id]
     if not object then
         return nil
     end
-    local text
-    if object.kit then
-        text = "Camp: a campfire with room for " .. object.room .. " camp objects - whoever sits by it a minute keeps the camp buffs for an hour"
-    else
-        local baseName = object.base or object.name
-        local buff = BUFFS[baseName]
-        if buff and buff.gives then
-            -- a stat buff: whose, how much now and at most, and the class buff it stands in for
-            local now = buff.scales and Camp.Now(BASE_ID[baseName]) or nil
-            text = "Camp buff" .. (object.base and (" (the " .. object.base .. "'s)") or "") .. ": "
-            if now then
-                text = text .. "now " .. now .. " - " .. buff.gives .. " at 60"
-            else
-                text = text .. buff.gives .. (buff.scales and " at 60, less at lower levels" or "")
-            end
-            if buff.copies then
-                text = text .. " - " .. DIM .. "instead of " .. buff.copies .. " - the two do not stack|r"
-            end
-            if object.does then
-                text = text .. " - " .. DIM .. object.does .. "|r"
-            end
-        elseif buff and buff.does then
-            -- the tent and the bot, and what stands on them
-            text = "Camp: " .. buff.does .. (object.does and (" - " .. object.does) or "")
-        elseif object.does then
-            text = "Camp: " .. object.does
-        else
-            return nil
-        end
+    local lines = {}
+    local function add(text, note)
+        lines[#lines + 1] = { text = text, note = note or nil }
     end
     if taught then
-        text = "Teaches the " .. object.name .. (object.skill and (" (skill " .. object.skill .. ")") or "") .. ". " .. text
+        add("Teaches the " .. object.name .. (object.skill and (" (skill " .. object.skill .. ")") or ""))
     end
-    return text
+    if object.kit then
+        add("Camp: a campfire with room for " .. object.room .. " camp objects")
+        add("Sit by it a minute: the camp buffs stay an hour", true)
+        return lines
+    end
+    local baseName = object.base or object.name
+    local buff = BUFFS[baseName]
+    if buff and buff.gives then
+        -- a stat buff: whose, how much at your level and at most, the class buff it stands in for
+        local head = "Camp buff" .. (object.base and (" (the " .. object.base .. "'s)") or "") .. ": "
+        local level, top = playerLevel(), maxLevel()
+        local below = buff.scales and level ~= nil and level < top
+        local now = below and Camp.Now(BASE_ID[baseName]) or nil
+        if now then
+            add(head .. now .. " at level " .. level)
+            add("At " .. top .. ": " .. buff.gives, true)
+        elseif below then
+            add(head .. buff.gives .. " at " .. top .. " (less at your level)")
+        else
+            add(head .. buff.gives)
+        end
+        if buff.copies then
+            add("Instead of " .. buff.copies .. " - the two do not stack", true)
+        end
+        if object.does then
+            add("Also: " .. object.does, true)
+        end
+    elseif buff and buff.does then
+        -- the tent and the bot, and what stands on them
+        add("Camp: " .. buff.does)
+        if object.does then
+            add("Also: " .. object.does, true)
+        end
+    elseif object.does then
+        add("Camp: " .. object.does)
+    else
+        return nil
+    end
+    return lines
+end
+
+-- the lines as one string, for a look at the data
+function Camp.Words(id)
+    local lines = Camp.Lines(id)
+    if not lines then
+        return nil
+    end
+    local texts = {}
+    for _, line in ipairs(lines) do
+        texts[#texts + 1] = line.text
+    end
+    return table.concat(texts, " / ")
 end
 
 ------------------------------------------------------------------------
@@ -225,10 +268,13 @@ local function remember(list, what, limit)
     end
 end
 
-local function addLine(tooltip, words)
-    ns.Step("camp line")
-    tooltip:AddLine(words, LINE_COLOR[1], LINE_COLOR[2], LINE_COLOR[3], true)
-    Camp.stats.lines = Camp.stats.lines + 1
+local function addLines(tooltip, lines)
+    for _, line in ipairs(lines) do
+        ns.Step("camp line")
+        local colour = line.note and NOTE_COLOR or LINE_COLOR
+        tooltip:AddLine(line.text, colour[1], colour[2], colour[3], true)
+        Camp.stats.lines = Camp.stats.lines + 1
+    end
 end
 
 -- on an item tooltip: the id arrives in the data, as Blizzard hands it over
@@ -241,13 +287,13 @@ function Camp.Add(tooltip, data)
     if ns.IsSecret(id) or type(id) ~= "number" then
         return
     end
-    local words = Camp.Words(id)
-    if not words then
+    local lines = Camp.Lines(id)
+    if not lines then
         return
     end
     ns.BeginTrace("camp post-call", tooltip)
     remember(Camp.stats.last, { item = id })
-    addLine(tooltip, words)
+    addLines(tooltip, lines)
 end
 
 -- the object a world object's name means: the name itself, or a longer name that holds one of ours whole
@@ -291,13 +337,13 @@ function Camp.AddObject(tooltip, data)
         end
         return
     end
-    local words = Camp.Words(id)
+    local words = Camp.Lines(id)
     if not words then
         return
     end
     ns.BeginTrace("camp object post-call", tooltip)
     remember(Camp.stats.last, { object = name })
-    addLine(tooltip, words)
+    addLines(tooltip, words)
 end
 
 function Camp.Describe()
