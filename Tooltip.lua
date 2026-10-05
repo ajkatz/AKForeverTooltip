@@ -589,6 +589,9 @@ local function onUnitTooltip(tooltip)
     end
     local unit = unitOf(tooltip)
     if unit then
+        if ns.Camp then
+            ns.SafeCall(ns.Camp.AddUnit, tooltip, unit) -- a camp object that is a creature to the client
+        end
         if ns:GetOption("health") then
             ns.SafeCall(addHealth, tooltip, unit)
         end

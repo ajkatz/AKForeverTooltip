@@ -553,7 +553,7 @@ scenario("the id on a spell and on an item, and never on a unit", function()
 end)
 
 scenario("a camp object's tooltip says the buff it brings; an upgrade names the buff it keeps; a blueprint says what it teaches", function()
-    local ns = start()
+    local ns, state = start()
     -- a first-tier object: its buff, the most of it, the class buff it stands in for - each its own line
     Mock.showItemTooltip(279960) -- Lodestone
     check(plainTexts():find("Camp buff: 90 melee Attack Power at 60 (less at your level) | Does not stack with: Blessing of Might | item 279960", 1, true), plainTexts())
@@ -616,6 +616,20 @@ scenario("a camp object's tooltip says the buff it brings; an upgrade names the 
     check(not plainTexts():find("Camp", 1, true), "a plain chair is no camp chair")
     check(ns.Camp.Describe().unmatched[1] == "Copper Vein" and ns.Camp.Describe().unmatched[2] == "Chair", table.concat(ns.Camp.Describe().unmatched, ","))
     equal(ns.Camp.ObjectByName("camp-chair"), 279979); equal(ns.Camp.ObjectByName("Lodestone"), 279960)
+    -- a chair is a seat, which the client may hand over as a creature: the unit tooltip matches the name too
+    state.units.chair = { name = "Camp Chair", player = false }
+    state.units.boar = { name = "Mottled Boar", player = false }
+    state.units.rogue = { name = "Purr Rogie", player = true, class = "ROGUE" }
+    GameTooltip.__lines = nil
+    Mock.showUnitTooltip("chair")
+    check(plainTexts():find("Camp buff: 2% critical strike chance | Does not stack with: Moonkin Aura", 1, true), plainTexts())
+    GameTooltip.__lines = nil
+    Mock.showUnitTooltip("boar")
+    check(not plainTexts():find("Camp", 1, true), plainTexts())
+    GameTooltip.__lines = nil
+    Mock.showUnitTooltip("rogue")
+    check(not plainTexts():find("Camp", 1, true), "a player is never looked at")
+    check(ns.Camp.Describe().unitNames[1] == "Mottled Boar" and #ns.Camp.Describe().unitNames == 1, table.concat(ns.Camp.Describe().unitNames, ","))
     -- switched off
     SlashCmdList.AKFOREVERTOOLTIP("lines camp off")
     GameTooltip.__lines = nil

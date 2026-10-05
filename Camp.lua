@@ -301,7 +301,7 @@ end
 ------------------------------------------------------------------------
 -- The post-calls
 ------------------------------------------------------------------------
-Camp.stats = { items = 0, objects = 0, lines = 0, last = {}, unmatched = {} }
+Camp.stats = { items = 0, objects = 0, lines = 0, last = {}, unmatched = {}, unitNames = {} }
 
 local function remember(list, what, limit)
     list[#list + 1] = what
@@ -388,12 +388,50 @@ function Camp.AddObject(tooltip, data)
     addLines(tooltip, words)
 end
 
+-- on a unit's tooltip: a camp object you can sit on may be a creature to the client rather than an
+-- object (a chair is a seat); a creature's name is matched the same way, a player is never looked at.
+-- The names of the creatures seen are kept for the report, so that an object of another kind shows up.
+function Camp.AddUnit(tooltip, unit)
+    if tooltip ~= GameTooltip or not ns:GetOption("camp") or not unit then
+        return
+    end
+    local isPlayer = ns.Readable(UnitIsPlayer, unit)
+    if not isPlayer or isPlayer[1] ~= false then
+        return
+    end
+    local answer = ns.Readable(UnitName, unit)
+    local name = answer and readableString(answer[1])
+    if not name then
+        return
+    end
+    local id = objectByName(name)
+    if not id then
+        local seen = false
+        for _, known in ipairs(Camp.stats.unitNames) do
+            if known == name then
+                seen = true
+            end
+        end
+        if not seen then
+            remember(Camp.stats.unitNames, name, 20)
+        end
+        return
+    end
+    local lines = Camp.Lines(id)
+    if not lines then
+        return
+    end
+    ns.BeginTrace("camp unit post-call", tooltip)
+    remember(Camp.stats.last, { unit = name })
+    addLines(tooltip, lines)
+end
+
 function Camp.Describe()
     local known = 0
     for _ in pairs(OBJECTS) do
         known = known + 1
     end
-    return { items = Camp.stats.items, objects = Camp.stats.objects, lines = Camp.stats.lines, last = Camp.stats.last, unmatched = Camp.stats.unmatched, known = known,
+    return { items = Camp.stats.items, objects = Camp.stats.objects, lines = Camp.stats.lines, last = Camp.stats.last, unmatched = Camp.stats.unmatched, unitNames = Camp.stats.unitNames, known = known,
         lastNow = Camp.lastNow, lastIcon = Camp.lastIcon,
         client = { getItemSpell = type(C_Item) == "table" and type(C_Item.GetItemSpell) == "function" and "C_Item" or (type(GetItemSpell) == "function" and "global" or "none"),
             spellDescription = type(C_Spell) == "table" and type(C_Spell.GetSpellDescription), spellTexture = type(C_Spell) == "table" and type(C_Spell.GetSpellTexture),
