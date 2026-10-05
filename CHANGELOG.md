@@ -1,5 +1,14 @@
 # AKForeverTooltip
 
+## 0.2.2
+
+- **Camp objects say what they bring.** Forever's campfire furniture - the Fish Bowl, Lodestone, Faction
+  Banner, Mana Well and the rest, and the upgrades that stand on them (Spinning Wheel, Anvil, Fishing
+  Rack...) - gets a line with the buff it gives to everyone who sits by the fire, the most it gives at
+  level 60, and the class buff it stands in for (a camp buff and the class buff it copies do not stack).
+  An upgrade's own tooltip only says "all the benefits of a Faction Banner"; the line says what those are.
+  `/ftt lines camp off` drops it. The 35 objects and the 24 blueprints are known by their item ids.
+
 ## 0.2.1
 
 - **Settings follow the character again.** Client build 1.60.1.70170 (Oct 1 2026) moved a character's

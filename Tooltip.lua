@@ -682,12 +682,15 @@ ns:Listen("LOGIN", function()
         end)
         Tooltip.hooks.anchor = true
     end
-    -- the id on a spell or an item, each its own kind of tooltip
+    -- the id on a spell or an item, each its own kind of tooltip; on an item, a camp object's buff first
     local kinds = Enum and Enum.TooltipDataType
     if TooltipDataProcessor and TooltipDataProcessor.AddTooltipPostCall and kinds then
         for what, kind in pairs({ ["spell"] = kinds.Spell, ["item"] = kinds.Item }) do
             if kind ~= nil then
                 TooltipDataProcessor.AddTooltipPostCall(kind, function(tooltip, data)
+                    if what == "item" and ns.Camp then
+                        ns.SafeCall(ns.Camp.Add, tooltip, data)
+                    end
                     ns.SafeCall(addID, tooltip, data, what)
                 end)
                 Tooltip.hooks[what] = true
@@ -816,9 +819,9 @@ end)
 -- whether it is there at all.
 local LINES = { health = "the hp / power lines", targetofttarget = false,
     targetoftarget = "who they are hitting", range = "roughly how far away", petmood = "your pet's mood",
-    ids = "the spell or item id" }
+    ids = "the spell or item id", camp = "a camp object's buff" }
 local LINE_OPTIONS = { health = "health", targetoftarget = "targetOfTarget", range = "range",
-    petmood = "petMood", ids = "ids" }
+    petmood = "petMood", ids = "ids", camp = "camp" }
 
 ns:RegisterCommand("lines", "which extra lines to show: /ftt lines range off, /ftt lines ids on, or /ftt lines to list them", function(rest)
     local which, value = string.match(rest or "", "^%s*(%S*)%s*(%S*)%s*$")

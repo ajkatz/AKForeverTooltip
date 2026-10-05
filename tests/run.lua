@@ -547,6 +547,49 @@ scenario("the id on a spell and on an item, and never on a unit", function()
     check(not textsOf():find("spell", 1, true), textsOf())
 end)
 
+scenario("a camp object's tooltip says the buff it brings; an upgrade names the buff it keeps; a blueprint says what it teaches", function()
+    local ns = start()
+    -- a first-tier object: its buff, the most of it, the class buff it stands in for
+    Mock.showItemTooltip(279960) -- Lodestone
+    check(textsOf():find("Camp buff: 90 melee Attack Power at 60, less at lower levels", 1, true) and textsOf():find("instead of Blessing of Might - the two do not stack", 1, true), textsOf())
+    GameTooltip.__lines = nil
+    Mock.showItemTooltip(279967) -- Fish Bowl: a percentage, the same at every level
+    check(textsOf():find("Camp buff: 8% to all stats - ", 1, true) and not textsOf():find("less at lower", 1, true), textsOf())
+    -- an upgrade: the first-tier buff it keeps, and its own work
+    GameTooltip.__lines = nil
+    Mock.showItemTooltip(279943) -- Spinning Wheel
+    check(textsOf():find("Camp buff (the Faction Banner's): 32 Spirit, for your own faction only at 60, less at lower levels", 1, true) and textsOf():find("instead of Divine Spirit", 1, true) and textsOf():find("makes certain Tailoring reagents", 1, true), textsOf())
+    -- one that keeps no buff
+    GameTooltip.__lines = nil
+    Mock.showItemTooltip(279957) -- Cookie's Feast
+    check(textsOf():find("Camp: Stamina food for everyone at camp", 1, true) and not textsOf():find("instead of", 1, true), textsOf())
+    -- the tent and the bot: what they do, no class buff
+    GameTooltip.__lines = nil
+    Mock.showItemTooltip(279949) -- Repair Bot
+    check(textsOf():find("Camp: a reagent vendor for everyone at camp - sells reagents and repairs gear", 1, true), textsOf())
+    -- a blueprint
+    GameTooltip.__lines = nil
+    Mock.showItemTooltip(273099) -- Blueprint: Spinning Wheel
+    check(textsOf():find("Teaches the Spinning Wheel (skill 140). Camp buff (the Faction Banner's)", 1, true), textsOf())
+    GameTooltip.__lines = nil
+    Mock.showItemTooltip(273101)
+    check(textsOf():find("Camp: Expert Campfire: holds 10 camp objects", 1, true), textsOf())
+    -- any other item: nothing; the id line still comes
+    GameTooltip.__lines = nil
+    Mock.showItemTooltip(6529)
+    check(not textsOf():find("Camp", 1, true) and textsOf():find("item 6529", 1, true), textsOf())
+    -- switched off
+    SlashCmdList.AKFOREVERTOOLTIP("lines camp off")
+    GameTooltip.__lines = nil
+    Mock.showItemTooltip(279960)
+    check(not textsOf():find("Camp", 1, true), textsOf())
+    -- every object and blueprint has words; the Faction Banner twice over, one a side
+    local count = 0
+    for id in pairs(ns.Camp.OBJECTS) do check(ns.Camp.Words(id), "no words for " .. id); count = count + 1 end
+    equal(count, 36)
+    for id in pairs(ns.Camp.BLUEPRINTS) do check(ns.Camp.Words(id), "no words for blueprint " .. id) end
+end)
+
 scenario("one spell, exactly: in range or out, and silence when the question does not apply", function()
     local ns, state = start()
     state.units.player = { name = "You", player = true }

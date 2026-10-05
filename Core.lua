@@ -260,6 +260,7 @@ local OPTION_DEFAULTS = {
     rangeSpell = false,  -- ... and, for one spell you name, whether it would actually reach
     petMood = true,      -- your own pet's happiness and loyalty
     ids = true,          -- the spell or item id on a spell / item tooltip
+    camp = true,         -- on a camp object (Forever's campfire furniture): the buff it brings and the class buff it stands in for
 }
 
 -- Realm names are squeezed ("Classic Beta PvE" -> "ClassicBetaPvE"): GetRealmName() gives the spaced
