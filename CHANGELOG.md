@@ -13,6 +13,10 @@
   `/ftt diag` lists any camp object the addon did not recognise.
 - `/ftt diag` keeps the whole tooltip of the last objects hovered and lists the buffs on you, so that what
   the client writes on a campfire (how many objects stand at it?) can be read from the report.
+- **A seat gets a tooltip.** The client shows no tooltip at all on a chair, so a camp chair had nothing to
+  carry its camp lines. While the game tooltip is hidden and the world cursor points at a camp object, a
+  small tooltip of our own now shows its name and the camp lines, and goes when the cursor leaves. Names
+  the cursor saw and did not know are kept in `/ftt diag`.
 
 ## 0.2.1
 
