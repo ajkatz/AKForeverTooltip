@@ -573,7 +573,7 @@ scenario("a camp object's tooltip says the buff it brings; an upgrade names the 
     check(textsOf():find("Teaches the Spinning Wheel (skill 140). Camp buff (the Faction Banner's)", 1, true), textsOf())
     GameTooltip.__lines = nil
     Mock.showItemTooltip(273101)
-    check(textsOf():find("Camp: Expert Campfire: holds 10 camp objects", 1, true), textsOf())
+    check(textsOf():find("Teaches the Expert Campfire. Camp: a campfire with room for 10 camp objects", 1, true), textsOf())
     -- any other item: nothing; the id line still comes
     GameTooltip.__lines = nil
     Mock.showItemTooltip(6529)
@@ -592,16 +592,80 @@ scenario("a camp object's tooltip says the buff it brings; an upgrade names the 
     Mock.showObjectTooltip(Mock.SECRET)
     check(not textsOf():find("Camp", 1, true), "a secret name is not looked at")
     equal(ns.Camp.Describe().objects, 4); check(ns.Camp.Describe().lines >= 2)
+    -- the campfires: the kit in the bag, the fire in the world, the blueprint
+    GameTooltip.__lines = nil
+    Mock.showItemTooltip(279981)
+    check(textsOf():find("Camp: a campfire with room for 3 camp objects", 1, true), textsOf())
+    GameTooltip.__lines = nil
+    Mock.showObjectTooltip("Expert Campfire")
+    check(textsOf():find("room for 10 camp objects", 1, true), textsOf())
+    GameTooltip.__lines = nil
+    Mock.showItemTooltip(273087)
+    check(textsOf():find("Teaches the Journeyman Campfire. Camp: a campfire with room for 5", 1, true), textsOf())
+    -- a world object whose name holds ours, and one that does not: the stranger is written down for the report
+    GameTooltip.__lines = nil
+    Mock.showObjectTooltip("Camp Chair (Bu's)")
+    check(textsOf():find("Camp buff: 2% critical strike chance", 1, true), textsOf())
+    GameTooltip.__lines = nil
+    Mock.showObjectTooltip("Chair")
+    check(not textsOf():find("Camp", 1, true), "a plain chair is no camp chair")
+    check(ns.Camp.Describe().unmatched[1] == "Copper Vein" and ns.Camp.Describe().unmatched[2] == "Chair", table.concat(ns.Camp.Describe().unmatched, ","))
+    equal(ns.Camp.ObjectByName("camp-chair"), 279979); equal(ns.Camp.ObjectByName("Lodestone"), 279960)
     -- switched off
     SlashCmdList.AKFOREVERTOOLTIP("lines camp off")
     GameTooltip.__lines = nil
     Mock.showItemTooltip(279960)
     check(not textsOf():find("Camp", 1, true), textsOf())
-    -- every object and blueprint has words; the Faction Banner twice over, one a side
+    -- every object, kit and blueprint has words; the Faction Banner twice over, one a side
     local count = 0
     for id in pairs(ns.Camp.OBJECTS) do check(ns.Camp.Words(id), "no words for " .. id); count = count + 1 end
-    equal(count, 36)
+    equal(count, 39)
     for id in pairs(ns.Camp.BLUEPRINTS) do check(ns.Camp.Words(id), "no words for blueprint " .. id) end
+end)
+
+scenario("the buff at your level: the first-tier item's Use spell, as the client words it for this character", function()
+    local ns, state = start()
+    state.itemSpells[279960] = { "Lodestone", 1255260 }
+    state.itemSpells[279956] = { "Mana Well", 1255256 }
+    state.itemSpells[279944] = { "Sharpening Wheel", 1255244 }
+    state.itemSpells[279976] = { "Enchanted Lute", 1255276 }
+    -- not loaded yet: the level-60 words, and the spell asked for
+    Mock.showItemTooltip(279960)
+    check(textsOf():find("Camp buff: 90 melee Attack Power at 60, less at lower levels", 1, true), textsOf())
+    equal(state.requestedSpells[1], 1255260)
+    -- loaded: now and at 60
+    state.spellDescriptions[1255260] = "Erects a lodestone that allows you and others sitting nearby to gain 32 increased melee Attack Power, mutually exclusive with Blessing of Might. Requires a Campfire nearby."
+    GameTooltip.__lines = nil
+    Mock.showItemTooltip(279960)
+    check(textsOf():find("Camp buff: now 32 increased melee Attack Power - 90 melee Attack Power at 60 - ", 1, true) and textsOf():find("instead of Blessing of Might", 1, true), textsOf())
+    -- the upgrade shows the base's buff at your level too
+    GameTooltip.__lines = nil
+    Mock.showItemTooltip(279948) -- Rock Garden
+    check(textsOf():find("Camp buff (the Lodestone's): now 32 increased melee Attack Power - 90 melee Attack Power at 60", 1, true), textsOf())
+    -- the other wordings the client uses
+    state.spellDescriptions[1255256] = "Constructs a mana well that allows you and others sitting nearby to regenerate 24 Mana every 5 sec, muutally exclusive with Blessing of Wisdom. Requires a Campfire nearby."
+    state.spellDescriptions[1255244] = "Constructs a sharpening wheel that grants you and others sitting nearby 20 increased Strength, mutually exclusive with Strength of Earth Totem. Requires a Campfire nearby."
+    state.spellDescriptions[1255276] = "Summons an enchanted lute that allows you and others sitting nearby to gain 163 Armor, and 9 increase to all stats, and 12 increase to all resistances, mutually exclusive with Mark of the Wild."
+    GameTooltip.__lines = nil
+    Mock.showItemTooltip(279970) -- Fermenter, the Mana Well's
+    check(textsOf():find("now 24 Mana every 5 sec - 29 Mana every 5 sec at 60", 1, true), textsOf())
+    GameTooltip.__lines = nil
+    Mock.showItemTooltip(279944)
+    check(textsOf():find("now 20 increased Strength - 34 Strength at 60", 1, true), textsOf())
+    GameTooltip.__lines = nil
+    Mock.showObjectTooltip("Arcane Forge")
+    check(textsOf():find("now 163 Armor, and 9 increase to all stats, and 12 increase to all resistances - 308 Armor", 1, true), textsOf())
+    -- a percentage does not scale: no "now"
+    state.itemSpells[279967] = { "Fish Bowl", 1255254 }
+    state.spellDescriptions[1255254] = "Places a small fish bowl that allows you and others sitting nearby to gain 8% increased stats, mutually exclusive with Blessing of Kings."
+    GameTooltip.__lines = nil
+    Mock.showItemTooltip(279967)
+    check(textsOf():find("Camp buff: 8% to all stats - ", 1, true) and not textsOf():find("now", 1, true), textsOf())
+    -- a secret description is not looked at
+    state.spellDescriptions[1255260] = Mock.SECRET
+    GameTooltip.__lines = nil
+    Mock.showItemTooltip(279960)
+    check(textsOf():find("90 melee Attack Power at 60, less at lower levels", 1, true), textsOf())
 end)
 
 scenario("one spell, exactly: in range or out, and silence when the question does not apply", function()

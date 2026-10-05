@@ -1,15 +1,19 @@
--- Camp: what a camp object brings, on its tooltip.
+-- Camp: what a camp object brings, on its tooltip - the item in your bags, the blueprint that teaches it,
+-- and the object standing at the fire.
 --
 -- Forever's campfires: a cook builds one, players add objects from their professions, and whoever sits by
 -- the fire for a minute keeps their buffs for an hour. An object's own tooltip names its buff only at the
 -- first tier ("gain 32 increased melee Attack Power, mutually exclusive with Blessing of Might"); the
 -- upgrades that stand on it say "provides all the benefits of a Lodestone" and no more. This adds one line
--- to every camp object and to the blueprints that teach them: the buff, the most it gives at level 60,
--- and the class buff it stands in for - a camp buff and the class buff it copies do not stack.
+-- to every camp object: the buff as it is AT YOUR LEVEL (the client resolves the first-tier item's Use
+-- text for your character; it is read through GetItemSpell and C_Spell.GetSpellDescription), the most it
+-- gives at level 60, and the class buff it stands in for - a camp buff and the class buff it copies do not
+-- stack.
 --
--- The objects are known by their item ids (Forever's item database, build 1.60.1.70205); the values are
--- ForeverChanges' reading of the same build. Blizzard's tooltip data hands the id over directly: nothing is
--- read from the tooltip, nothing secret is looked at.
+-- The objects are known by their item ids (Forever's item database, build 1.60.1.70205) and, standing at
+-- a camp, by their names; the level-60 values are ForeverChanges' reading of the same build. Blizzard's
+-- tooltip data hands the id and the lines over directly: nothing is read from the tooltip, nothing secret
+-- is looked at.
 local _, ns = ...
 
 local Camp = {}
@@ -33,8 +37,8 @@ local BUFFS = {
     ["First Aid Kit"]    = { gives = "56 Stamina", scales = true, copies = "Power Word: Fortitude", profession = "First Aid" },
 }
 
--- every object by item id: its name, tier (the skill it asks: 20, 140, 300), the first-tier object whose
--- buff it keeps (`base`), and what it does besides
+-- every object by item id: its name, the skill it asks (20, 140, 300), the first-tier object whose buff it
+-- keeps (`base`), and what it does besides
 local OBJECTS = {
     -- tier one (skill 20)
     [279956] = { name = "Mana Well", skill = 20 },
@@ -75,62 +79,41 @@ local OBJECTS = {
     [279982] = { name = "Iron Oven", skill = 300, does = "for the most advanced Cooking recipes", profession = "Cooking" },
     [279966] = { name = "Fishing Hut", skill = 300, base = "Fish Bowl", does = "rare fish for an hour, and Fishing Skill lures" },
     [279951] = { name = "Plague Doctor's Laboratory", skill = 300, base = "First Aid Kit", does = "healing potions and poultices" },
+    -- the campfires themselves, as kits: a cook builds them, the objects stand around them
+    [279981] = { name = "Basic Campfire", kit = true, room = 3 },
+    [279961] = { name = "Journeyman Campfire", kit = true, room = 5 },
+    [279974] = { name = "Expert Campfire", kit = true, room = 10 },
 }
 
--- the blueprints that teach the upgrades, and the bigger campfires
+-- the blueprints that teach the upgrades and the bigger campfires
 local BLUEPRINTS = {
     [273085] = 279970, [273086] = 279988, [273103] = 279985, [273092] = 279949, [273096] = 279941, [273099] = 279943,
     [273097] = 279948, [273106] = 279964, [273098] = 279969, [273102] = 279957, [273141] = 279965, [273105] = 279940,
     [273112] = 279990, [273113] = 279955, [273116] = 279987, [273117] = 279989, [273121] = 279945, [273124] = 279959,
     [273122] = 279952, [273120] = 279947, [273109] = 279938, [273115] = 279982, [273119] = 279966, [273118] = 279951,
-}
-local CAMPFIRES = {
-    [273087] = "Journeyman Campfire: holds 5 camp objects",
-    [273101] = "Expert Campfire: holds 10 camp objects",
+    [273087] = 279961, [273101] = 279974,
 }
 
 Camp.OBJECTS, Camp.BUFFS, Camp.BLUEPRINTS = OBJECTS, BUFFS, BLUEPRINTS
 
--- the words for one object
-function Camp.Words(id)
-    local campfire = CAMPFIRES[id]
-    if campfire then
-        return "Camp: " .. campfire
-    end
-    local taught = BLUEPRINTS[id]
-    local object = OBJECTS[taught or id]
-    if not object then
-        return nil
-    end
-    local buff = BUFFS[object.base or object.name]
-    local text
-    if buff and buff.gives then
-        -- a stat buff: whose, how much at most, and the class buff it stands in for
-        text = "Camp buff" .. (object.base and (" (the " .. object.base .. "'s)") or "") .. ": " .. buff.gives .. (buff.scales and " at 60, less at lower levels" or "")
-        if buff.copies then
-            text = text .. " - " .. DIM .. "instead of " .. buff.copies .. " - the two do not stack|r"
-        end
-        if object.does then
-            text = text .. " - " .. DIM .. object.does .. "|r"
-        end
-    elseif buff and buff.does then
-        -- the tent and the bot, and what stands on them
-        text = "Camp: " .. buff.does .. (object.does and (" - " .. object.does) or "")
-    elseif object.does then
-        text = "Camp: " .. object.does
-    else
-        return nil
-    end
-    if taught then
-        text = "Teaches the " .. object.name .. " (skill " .. object.skill .. "). " .. text
-    end
-    return text
+-- names as keys: lower case, letters only - "Camp Chair", "camp chair" and "Camp-Chair" are one thing
+local function key(name)
+    return (string.lower(string.gsub(name, "[^%a]", "")))
 end
 
--- the objects by name, for the ones standing at a camp
-local BY_NAME = {}
+-- the objects by name, for the ones standing at a camp (the first-tier item for a first-tier name)
+local BY_KEY = {}
 for id, object in pairs(OBJECTS) do
-    BY_NAME[object.name] = BY_NAME[object.name] or id
+    local k = key(object.name)
+    if not BY_KEY[k] or (OBJECTS[BY_KEY[k]].base and not object.base) then
+        BY_KEY[k] = id
+    end
+end
+local BASE_ID = {}
+for id, object in pairs(OBJECTS) do
+    if not object.base and not object.kit then
+        BASE_ID[object.name] = BASE_ID[object.name] or id
+    end
 end
 
 -- a string the addon may look at: not empty, not a secret value
@@ -141,13 +124,104 @@ local function readableString(value)
     return value
 end
 
-Camp.stats = { items = 0, objects = 0, lines = 0, last = {} }
+------------------------------------------------------------------------
+-- The buff at your level: the first-tier item's Use spell, whose words the client resolves for your
+-- character ("... to gain 32 increased melee Attack Power, mutually exclusive with ..."). Not loaded yet
+-- on a first look (an empty description): asked for, and there the next time.
+------------------------------------------------------------------------
+local PATTERNS = { "to gain (.-), mu", "to regenerate (.-), mu", "nearby (.-), mu" }
+local requested = {}
 
-local function remember(what)
-    local last = Camp.stats.last
-    last[#last + 1] = what
-    if #last > 12 then
-        table.remove(last, 1)
+local function useSpellOf(itemID)
+    local getter = (type(C_Item) == "table" and type(C_Item.GetItemSpell) == "function" and C_Item.GetItemSpell) or (type(GetItemSpell) == "function" and GetItemSpell) or nil
+    local answer = getter and ns.Readable(getter, itemID)
+    local spellID = answer and answer[2]
+    if type(spellID) == "number" then
+        return spellID
+    end
+    return nil
+end
+
+function Camp.Now(baseItemID)
+    if not baseItemID or type(C_Spell) ~= "table" or type(C_Spell.GetSpellDescription) ~= "function" then
+        return nil
+    end
+    local spellID = useSpellOf(baseItemID)
+    if not spellID then
+        return nil
+    end
+    local answer = ns.Readable(C_Spell.GetSpellDescription, spellID)
+    local text = answer and readableString(answer[1])
+    if not text then
+        if not requested[spellID] and type(C_Spell.RequestLoadSpellData) == "function" then
+            requested[spellID] = true
+            pcall(C_Spell.RequestLoadSpellData, spellID)
+        end
+        return nil
+    end
+    for _, pattern in ipairs(PATTERNS) do
+        local found = string.match(text, pattern)
+        if found then
+            return (string.gsub(found, "%s+", " "))
+        end
+    end
+    return nil
+end
+
+------------------------------------------------------------------------
+-- The words
+------------------------------------------------------------------------
+function Camp.Words(id)
+    local taught = BLUEPRINTS[id]
+    local object = OBJECTS[taught or id]
+    if not object then
+        return nil
+    end
+    local text
+    if object.kit then
+        text = "Camp: a campfire with room for " .. object.room .. " camp objects - whoever sits by it a minute keeps the camp buffs for an hour"
+    else
+        local baseName = object.base or object.name
+        local buff = BUFFS[baseName]
+        if buff and buff.gives then
+            -- a stat buff: whose, how much now and at most, and the class buff it stands in for
+            local now = buff.scales and Camp.Now(BASE_ID[baseName]) or nil
+            text = "Camp buff" .. (object.base and (" (the " .. object.base .. "'s)") or "") .. ": "
+            if now then
+                text = text .. "now " .. now .. " - " .. buff.gives .. " at 60"
+            else
+                text = text .. buff.gives .. (buff.scales and " at 60, less at lower levels" or "")
+            end
+            if buff.copies then
+                text = text .. " - " .. DIM .. "instead of " .. buff.copies .. " - the two do not stack|r"
+            end
+            if object.does then
+                text = text .. " - " .. DIM .. object.does .. "|r"
+            end
+        elseif buff and buff.does then
+            -- the tent and the bot, and what stands on them
+            text = "Camp: " .. buff.does .. (object.does and (" - " .. object.does) or "")
+        elseif object.does then
+            text = "Camp: " .. object.does
+        else
+            return nil
+        end
+    end
+    if taught then
+        text = "Teaches the " .. object.name .. (object.skill and (" (skill " .. object.skill .. ")") or "") .. ". " .. text
+    end
+    return text
+end
+
+------------------------------------------------------------------------
+-- The post-calls
+------------------------------------------------------------------------
+Camp.stats = { items = 0, objects = 0, lines = 0, last = {}, unmatched = {} }
+
+local function remember(list, what, limit)
+    list[#list + 1] = what
+    if #list > (limit or 12) then
+        table.remove(list, 1)
     end
 end
 
@@ -157,7 +231,7 @@ local function addLine(tooltip, words)
     Camp.stats.lines = Camp.stats.lines + 1
 end
 
--- the post-call on an item tooltip: the id arrives in the data, as Blizzard hands it over
+-- on an item tooltip: the id arrives in the data, as Blizzard hands it over
 function Camp.Add(tooltip, data)
     if tooltip ~= GameTooltip or not ns:GetOption("camp") then
         return
@@ -172,12 +246,27 @@ function Camp.Add(tooltip, data)
         return
     end
     ns.BeginTrace("camp post-call", tooltip)
-    remember({ item = id })
+    remember(Camp.stats.last, { item = id })
     addLine(tooltip, words)
 end
 
--- the post-call on a world object's tooltip - the tent, the lute, the kit standing at a camp: the data
--- carries the lines Blizzard built, the first being the object's name; the name is matched, nothing else read
+-- the object a world object's name means: the name itself, or a longer name that holds one of ours whole
+local function objectByName(name)
+    local k = key(name)
+    if BY_KEY[k] then
+        return BY_KEY[k]
+    end
+    for known, id in pairs(BY_KEY) do
+        if #known >= 8 and string.find(k, known, 1, true) then
+            return id
+        end
+    end
+    return nil
+end
+Camp.ObjectByName = objectByName
+
+-- on a world object's tooltip - the tent, the lute, the kit standing at a camp: the data carries the
+-- lines Blizzard built, the first being the object's name; the name is matched, nothing else is read
 function Camp.AddObject(tooltip, data)
     if tooltip ~= GameTooltip or not ns:GetOption("camp") then
         return
@@ -189,8 +278,17 @@ function Camp.AddObject(tooltip, data)
     if not name then
         return
     end
-    local id = BY_NAME[name]
+    local id = objectByName(name)
     if not id then
+        local seen = false
+        for _, known in ipairs(Camp.stats.unmatched) do
+            if known == name then
+                seen = true
+            end
+        end
+        if not seen then
+            remember(Camp.stats.unmatched, name, 20)
+        end
         return
     end
     local words = Camp.Words(id)
@@ -198,10 +296,14 @@ function Camp.AddObject(tooltip, data)
         return
     end
     ns.BeginTrace("camp object post-call", tooltip)
-    remember({ object = name })
+    remember(Camp.stats.last, { object = name })
     addLine(tooltip, words)
 end
 
 function Camp.Describe()
-    return { items = Camp.stats.items, objects = Camp.stats.objects, lines = Camp.stats.lines, last = Camp.stats.last, known = (function() local n = 0 for _ in pairs(OBJECTS) do n = n + 1 end return n end)() }
+    local known = 0
+    for _ in pairs(OBJECTS) do
+        known = known + 1
+    end
+    return { items = Camp.stats.items, objects = Camp.stats.objects, lines = Camp.stats.lines, last = Camp.stats.last, unmatched = Camp.stats.unmatched, known = known }
 end

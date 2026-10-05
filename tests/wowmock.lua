@@ -460,6 +460,19 @@ function Mock.install(options)
     if not options.noPostCalls then
         local postCalls = {}
         global("Enum", { TooltipDataType = { Item = 0, Spell = 1, Unit = 2, Object = 4 } })
+        -- an item's Use spell, and the words of a spell as the client resolves them for this character
+        state.itemSpells = state.itemSpells or {}        -- [itemID] = { name, spellID }
+        state.spellDescriptions = state.spellDescriptions or {} -- [spellID] = text ("" = not loaded yet)
+        state.requestedSpells = {}
+        global("GetItemSpell", function(itemID)
+            local s = state.itemSpells[itemID]
+            if not s then return nil end
+            return s[1], s[2]
+        end)
+        global("C_Spell", {
+            GetSpellDescription = function(spellID) return state.spellDescriptions[spellID] or "" end,
+            RequestLoadSpellData = function(spellID) state.requestedSpells[#state.requestedSpells + 1] = spellID end,
+        })
         global("TooltipDataProcessor", {
             AddTooltipPostCall = function(dataType, fn)
                 postCalls[dataType] = postCalls[dataType] or {}
