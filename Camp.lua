@@ -52,8 +52,10 @@ local function iconOf(buff)
         texture = "Interface\\Icons\\" .. buff.icon
     end
     if not texture then
+        Camp.lastIcon = { spell = buff.spell, texture = "none" }
         return ""
     end
+    Camp.lastIcon = { spell = buff.spell, texture = texture, kind = type(texture) }
     return "|T" .. tostring(texture) .. ":16:16:0:0:64:64:4:60:4:60|t "
 end
 
@@ -170,39 +172,58 @@ end
 local PATTERNS = { "to gain (.-), mu", "to regenerate (.-), mu", "nearby (.-), mu" }
 local requested = {}
 
+local requestedItems = {}
+Camp.lastNow = nil -- what the last look at a buff's level-scaled words found, for the report
+
+-- the item's Use spell. An item the client has not seen yet answers nothing: its data is asked for
+-- (ITEM_DATA_LOAD_RESULT brings it) and the next look has it.
 local function useSpellOf(itemID)
     local getter = (type(C_Item) == "table" and type(C_Item.GetItemSpell) == "function" and C_Item.GetItemSpell) or (type(GetItemSpell) == "function" and GetItemSpell) or nil
     local answer = getter and ns.Readable(getter, itemID)
     local spellID = answer and answer[2]
     if type(spellID) == "number" then
-        return spellID
+        return spellID, getter and "answered" or "no GetItemSpell"
     end
-    return nil
+    if getter and not requestedItems[itemID] and type(C_Item) == "table" and type(C_Item.RequestLoadItemDataByID) == "function" then
+        requestedItems[itemID] = true
+        pcall(C_Item.RequestLoadItemDataByID, itemID)
+        return nil, "item data asked for"
+    end
+    return nil, getter and "no spell for the item" or "no GetItemSpell"
 end
 
 function Camp.Now(baseItemID)
+    local trace = { item = baseItemID }
+    Camp.lastNow = trace
     if not baseItemID or type(C_Spell) ~= "table" or type(C_Spell.GetSpellDescription) ~= "function" then
+        trace.why = "no C_Spell.GetSpellDescription"
         return nil
     end
-    local spellID = useSpellOf(baseItemID)
+    local spellID, how = useSpellOf(baseItemID)
+    trace.spell, trace.how = spellID, how
     if not spellID then
         return nil
     end
     local answer = ns.Readable(C_Spell.GetSpellDescription, spellID)
     local text = answer and readableString(answer[1])
     if not text then
+        trace.why = answer and "an empty description (not loaded yet)" or "a secret or missing description"
         if not requested[spellID] and type(C_Spell.RequestLoadSpellData) == "function" then
             requested[spellID] = true
             pcall(C_Spell.RequestLoadSpellData, spellID)
+            trace.why = trace.why .. "; asked for"
         end
         return nil
     end
+    trace.description = string.sub(text, 1, 200)
     for _, pattern in ipairs(PATTERNS) do
         local found = string.match(text, pattern)
         if found then
-            return (string.gsub(found, "%s+", " "))
+            trace.now = (string.gsub(found, "%s+", " "))
+            return trace.now
         end
     end
+    trace.why = "the words did not match any pattern"
     return nil
 end
 
@@ -372,5 +393,9 @@ function Camp.Describe()
     for _ in pairs(OBJECTS) do
         known = known + 1
     end
-    return { items = Camp.stats.items, objects = Camp.stats.objects, lines = Camp.stats.lines, last = Camp.stats.last, unmatched = Camp.stats.unmatched, known = known }
+    return { items = Camp.stats.items, objects = Camp.stats.objects, lines = Camp.stats.lines, last = Camp.stats.last, unmatched = Camp.stats.unmatched, known = known,
+        lastNow = Camp.lastNow, lastIcon = Camp.lastIcon,
+        client = { getItemSpell = type(C_Item) == "table" and type(C_Item.GetItemSpell) == "function" and "C_Item" or (type(GetItemSpell) == "function" and "global" or "none"),
+            spellDescription = type(C_Spell) == "table" and type(C_Spell.GetSpellDescription), spellTexture = type(C_Spell) == "table" and type(C_Spell.GetSpellTexture),
+            requestItem = type(C_Item) == "table" and type(C_Item.RequestLoadItemDataByID) } }
 end
