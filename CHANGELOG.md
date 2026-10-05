@@ -11,6 +11,8 @@
   the item in your bags, on the blueprint that teaches it, and on the object standing at the camp.
   `/ftt lines camp off` drops it. The 38 items are known by their ids, the objects by their names;
   `/ftt diag` lists any camp object the addon did not recognise.
+- `/ftt diag` keeps the whole tooltip of the last objects hovered and lists the buffs on you, so that what
+  the client writes on a campfire (how many objects stand at it?) can be read from the report.
 
 ## 0.2.1
 

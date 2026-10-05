@@ -597,6 +597,19 @@ scenario("a camp object's tooltip says the buff it brings; an upgrade names the 
     Mock.showObjectTooltip(Mock.SECRET)
     check(not plainTexts():find("Camp", 1, true), "a secret name is not looked at")
     equal(ns.Camp.Describe().objects, 4); check(ns.Camp.Describe().lines >= 2)
+    -- the report keeps a campfire's whole tooltip (what the client writes on it is the open question), the
+    -- same tooltip once, a secret line marked; and the buffs on you, by name and spell id
+    GameTooltip.__lines = nil
+    Mock.showObjectTooltip("Basic Campfire", nil, { { leftText = "Camp objects: 2/3", rightText = "15 min" }, { leftText = Mock.SECRET } })
+    Mock.showObjectTooltip("Basic Campfire", nil, { { leftText = "Camp objects: 2/3", rightText = "15 min" }, { leftText = Mock.SECRET } })
+    local kept = ns.Camp.Describe().objectLines
+    equal(#kept, 5, "four objects before it, the campfire twice kept once"); equal(kept[5].name, "Basic Campfire")
+    equal(kept[5].lines[2], "Camp objects: 2/3 | 15 min"); equal(kept[5].lines[3], "<secret>", "a secret line is marked, never read")
+    equal(kept[4].name, "<secret name>")
+    Mock.state.auras = { player = { { name = "Lodestone", spellId = 1234, duration = 3600, applications = 1 }, { name = Mock.SECRET, spellId = Mock.SECRET, duration = Mock.SECRET } } }
+    local buffs = ns.Camp.Describe().buffs
+    equal(#buffs, 2); equal(buffs[1], "Lodestone #1234 3600s x1"); equal(buffs[2], "<secret> #? ?s x1")
+    Mock.state.auras = nil
     -- the campfires: the kit in the bag, the fire in the world, the blueprint
     GameTooltip.__lines = nil
     Mock.showItemTooltip(279981)

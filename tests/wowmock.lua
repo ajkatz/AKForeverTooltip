@@ -473,6 +473,17 @@ function Mock.install(options)
             return s[1], s[2]
         end)
         state.spellTextures = state.spellTextures or {} -- [spellID] = file id
+        global("C_UnitAuras", {
+            GetAuraDataByIndex = function(unit, index, filter)
+                local list = state.auras and state.auras[unit]
+                local aura = list and list[index]
+                if not aura then
+                    return nil
+                end
+                return { name = aura.name, spellId = aura.spellId, duration = aura.duration or 0, expirationTime = aura.expirationTime or 0,
+                    applications = aura.applications or 1, sourceUnit = aura.source, isHelpful = filter == "HELPFUL" }
+            end,
+        })
         global("C_Spell", {
             GetSpellDescription = function(spellID) return state.spellDescriptions[spellID] or "" end,
             RequestLoadSpellData = function(spellID) state.requestedSpells[#state.requestedSpells + 1] = spellID end,
@@ -501,10 +512,14 @@ function Mock.install(options)
         end
 
         -- a world object's tooltip: Blizzard's lines come with the data, the first being the name
-        function Mock.showObjectTooltip(name, tooltip)
+        function Mock.showObjectTooltip(name, tooltip, extra)
             tooltip = tooltip or G.GameTooltip
+            local lines = { { leftText = name } }
+            for _, line in ipairs(extra or {}) do
+                lines[#lines + 1] = line
+            end
             for _, fn in ipairs(postCalls[G.Enum.TooltipDataType.Object] or {}) do
-                fn(tooltip, { type = G.Enum.TooltipDataType.Object, lines = { { leftText = name } } })
+                fn(tooltip, { type = G.Enum.TooltipDataType.Object, lines = lines })
             end
         end
 

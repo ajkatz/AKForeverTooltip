@@ -301,7 +301,7 @@ end
 ------------------------------------------------------------------------
 -- The post-calls
 ------------------------------------------------------------------------
-Camp.stats = { items = 0, objects = 0, lines = 0, last = {}, unmatched = {}, unitNames = {} }
+Camp.stats = { items = 0, objects = 0, lines = 0, last = {}, unmatched = {}, unitNames = {}, objectLines = {} }
 
 local function remember(list, what, limit)
     list[#list + 1] = what
@@ -363,6 +363,30 @@ function Camp.AddObject(tooltip, data)
     local lines = type(data) == "table" and data.lines or nil
     local first = type(lines) == "table" and lines[1] or nil
     local name = type(first) == "table" and readableString(first.leftText) or nil
+    -- the whole tooltip of the last eight objects is kept for the report, the same one once: what the
+    -- client writes on a campfire - a count of its objects, their names, nothing - is read from there
+    if type(lines) == "table" then
+        local kept = {}
+        for i = 1, math.min(#lines, 12) do
+            local line = lines[i]
+            if type(line) == "table" then
+                local left = readableString(line.leftText) or (ns.IsSecret(line.leftText) and "<secret>" or "")
+                local right = readableString(line.rightText)
+                kept[#kept + 1] = right and (left .. " | " .. right) or left
+            end
+        end
+        local entry = { name = name or "<secret name>", lines = kept }
+        local key = entry.name .. "\n" .. table.concat(kept, "\n")
+        local seen = false
+        for _, known in ipairs(Camp.stats.objectLines) do
+            if known.name .. "\n" .. table.concat(known.lines, "\n") == key then
+                seen = true
+            end
+        end
+        if not seen then
+            remember(Camp.stats.objectLines, entry, 8)
+        end
+    end
     if not name then
         return
     end
@@ -426,12 +450,48 @@ function Camp.AddUnit(tooltip, unit)
     addLines(tooltip, lines)
 end
 
+-- the buffs on you, for the report: a camp's buffs are told apart by their names and spell ids, and
+-- whatever a camp writes on them (a stack that counts its objects, say) is read from there. Nothing
+-- secret is read: a secret field is marked and left alone.
+local function auraAt(index)
+    if type(C_UnitAuras) == "table" and type(C_UnitAuras.GetAuraDataByIndex) == "function" then
+        local answer = ns.Readable(C_UnitAuras.GetAuraDataByIndex, "player", index, "HELPFUL")
+        local aura = answer and answer[1]
+        if type(aura) ~= "table" then
+            return nil
+        end
+        return true, aura.name, aura.spellId, aura.duration, aura.applications, aura.sourceUnit
+    elseif type(UnitAura) == "function" then
+        local ok, name, _, count, _, duration, _, source, _, _, spellId = pcall(UnitAura, "player", index, "HELPFUL")
+        if not ok or (not ns.IsSecret(name) and name == nil) then
+            return nil
+        end
+        return true, name, spellId, duration, count, source
+    end
+    return nil
+end
+
+function Camp.Buffs()
+    local out = {}
+    for index = 1, 40 do
+        local found, name, spellId, duration, count, source = auraAt(index)
+        if not found then
+            break
+        end
+        local id, seconds, stacks = readableNumber(spellId), readableNumber(duration), readableNumber(count)
+        out[#out + 1] = string.format("%s #%s %ss x%s%s", readableString(name) or "<secret>", id and tostring(id) or "?",
+            seconds and tostring(seconds) or "?", stacks and tostring(stacks) or "?",
+            readableString(source) and (" from " .. readableString(source)) or "")
+    end
+    return out
+end
+
 function Camp.Describe()
     local known = 0
     for _ in pairs(OBJECTS) do
         known = known + 1
     end
-    return { items = Camp.stats.items, objects = Camp.stats.objects, lines = Camp.stats.lines, last = Camp.stats.last, unmatched = Camp.stats.unmatched, unitNames = Camp.stats.unitNames, known = known,
+    return { items = Camp.stats.items, objects = Camp.stats.objects, lines = Camp.stats.lines, last = Camp.stats.last, unmatched = Camp.stats.unmatched, unitNames = Camp.stats.unitNames, objectLines = Camp.stats.objectLines, buffs = Camp.Buffs(), known = known,
         lastNow = Camp.lastNow, lastIcon = Camp.lastIcon,
         client = { getItemSpell = type(C_Item) == "table" and type(C_Item.GetItemSpell) == "function" and "C_Item" or (type(GetItemSpell) == "function" and "global" or "none"),
             spellDescription = type(C_Spell) == "table" and type(C_Spell.GetSpellDescription), spellTexture = type(C_Spell) == "table" and type(C_Spell.GetSpellTexture),
