@@ -17,7 +17,7 @@
   carry its camp lines. While the game tooltip is hidden and the world cursor points at a camp object, a
   small tooltip of our own now shows its name and the camp lines, and goes when the cursor leaves. It
   reacts to the cursor changing shape; nothing runs between one change and the next. Names the cursor
-  saw and did not know are kept in `/ftt diag`.
+  saw and did not know are kept in `/ftt diag`. *New in this release and not yet checked in the game: whether the cursor changes shape over a seat at all.*
 
 ## 0.2.1
 
