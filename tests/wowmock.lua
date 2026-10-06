@@ -180,27 +180,6 @@ local function newBlizzardTooltip(name)
 end
 
 -- Runs fn as Blizzard's own (secure) code.
--- The tooltip of an addon (CreateFrame("GameTooltip", ..., "GameTooltipTemplate")): the same methods,
--- but the addon owns it - SetOwner, ClearLines, Show and Hide on it run nothing of Blizzard's
-local function newOwnTooltip(name)
-    local tooltip = setmetatable({ __kind = "GameTooltip", __name = name, __scripts = {}, __events = {} }, { __index = tooltipMethods })
-    tooltip.SetOwner = function(self, owner, anchorType) self.__owner, self.__anchorType = owner, anchorType end
-    tooltip.ClearLines = function(self) self.__lines = nil end
-    tooltip.Show = function(self) self.__shown = true end
-    tooltip.Hide = function(self) self.__shown = false end
-    return tooltip
-end
-
--- A frame of the game: every frame's OnUpdate runs with the seconds since the last one
-function Mock.tick(elapsed)
-    for _, frame in ipairs(Mock.frames) do
-        local fn = frame.__scripts and frame.__scripts.OnUpdate
-        if fn and frame:IsShown() then -- as in the client: a hidden frame's OnUpdate does not run
-            fn(frame, elapsed)
-        end
-    end
-end
-
 function Mock.asBlizzard(fn, ...)
     local before = Mock.blizzardCode
     Mock.blizzardCode = true
@@ -337,7 +316,7 @@ function Mock.install(options)
     global("SlashCmdList", {})
     global("C_AddOns", { GetAddOnMetadata = function() return "0.1.0-test" end })
     global("CreateFrame", function(kind, name)
-        local frame = kind == "GameTooltip" and newOwnTooltip(name) or newWidget(kind, name)
+        local frame = newWidget(kind, name)
         Mock.frames[#Mock.frames + 1] = frame
         if name then
             global(name, frame) -- a named frame is a global, as in the client
@@ -345,10 +324,6 @@ function Mock.install(options)
         return frame
     end)
     global("UIParent", newWidget("Frame", "UIParent"))
-    global("WorldFrame", newWidget("Frame", "WorldFrame"))
-    global("GetMouseFoci", function() return state.mouseFoci or { G.WorldFrame } end)
-    -- the world cursor: the tooltip data of what the mouse points at in the world, nil over nothing
-    global("C_TooltipInfo", { GetWorldCursor = function() return state.worldCursor end })
     _G.UIParent.CreateFontString = function(_, name) return newWidget("FontString", name) end
 
     -- Units ---------------------------------------------------------------

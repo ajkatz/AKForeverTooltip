@@ -301,7 +301,7 @@ end
 ------------------------------------------------------------------------
 -- The post-calls
 ------------------------------------------------------------------------
-Camp.stats = { items = 0, objects = 0, lines = 0, unmatched = {}, unitNames = {}, objectLines = {}, cursorNames = {} }
+Camp.stats = { items = 0, objects = 0, lines = 0, unmatched = {}, unitNames = {}, objectLines = {} }
 
 local function remember(list, what, limit)
     list[#list + 1] = what
@@ -338,10 +338,18 @@ function Camp.Add(tooltip, data)
 end
 
 -- the object a world object's name means: the name itself, or a longer name that holds one of ours whole
+-- The names the WORLD gives a camp object when they are not the item's: the chair standing at a camp is
+-- just "Chair" to the client (seen 2026-10-06), a name too short for the tolerant match below. (Any
+-- other chair called "Chair" would get the Camp Chair's lines too; none has been met yet.)
+local WORLD_NAMES = { chair = 279979 }
+
 local function objectByName(name)
     local k = key(name)
     if BY_KEY[k] then
         return BY_KEY[k]
+    end
+    if WORLD_NAMES[k] then
+        return WORLD_NAMES[k]
     end
     for known, id in pairs(BY_KEY) do
         if #known >= 8 and string.find(k, known, 1, true) then
@@ -410,8 +418,8 @@ function Camp.AddObject(tooltip, data)
     addLines(tooltip, words)
 end
 
--- on a unit's tooltip: a camp object you can sit on may be a creature to the client rather than an
--- object (a chair is a seat); a creature's name is matched the same way, a player is never looked at.
+-- on a unit's tooltip: a camp object may be a creature to the client rather than an object (the Repair
+-- Bot is a vendor); a creature's name is matched the same way, a player is never looked at.
 -- The names of the creatures seen are kept for the report, so that an object of another kind shows up.
 function Camp.AddUnit(tooltip, unit)
     if tooltip ~= GameTooltip or not ns:GetOption("camp") or not unit then
@@ -448,167 +456,6 @@ function Camp.AddUnit(tooltip, unit)
 end
 
 ------------------------------------------------------------------------
--- A seat has no tooltip. The client shows nothing on a chair - the cursor changes, that is all - so
--- there was no game tooltip to put the camp lines on (measured 2026-10-05: forty-seven camp objects
--- went through the object hook, the chair never, and no creature was a chair either). The world
--- cursor still knows what it points at: C_TooltipInfo.GetWorldCursor gives the data a tooltip would
--- be built from. So while the game tooltip is hidden and the mouse is on the world, a camp object
--- under the cursor gets a small tooltip of our own: our frame, our lines, nothing secret on it.
-------------------------------------------------------------------------
-local CURSOR_INTERVAL = 0.2 -- seconds between looks while there is a reason to look
-local LOOK_AGAIN = 1.0      -- seconds after a cursor change in which the world cursor is still asked: its data can lag the cursor
-local ownTip, watcher
-local shownName
-local sinceCheck, watchLeft = 0, 0
-
-local function rememberDistinct(list, what, limit)
-    for _, known in ipairs(list) do
-        if known == what then
-            return
-        end
-    end
-    remember(list, what, limit)
-end
-
-local function cursorData()
-    local getter = type(C_TooltipInfo) == "table" and C_TooltipInfo.GetWorldCursor or nil
-    if type(getter) ~= "function" then
-        return nil
-    end
-    local answer = ns.Readable(getter)
-    local data = answer and answer[1]
-    return type(data) == "table" and data or nil
-end
-
--- the mouse is on the world when nothing of the UI is under it
-local function mouseOnWorld()
-    if type(GetMouseFoci) == "function" then
-        local foci = GetMouseFoci()
-        local focus = type(foci) == "table" and foci[1] or nil
-        return focus == nil or focus == WorldFrame
-    elseif type(GetMouseFocus) == "function" then
-        local focus = GetMouseFocus()
-        return focus == nil or focus == WorldFrame
-    end
-    return true
-end
-
-local function hideOwn()
-    if ownTip and ownTip:IsShown() then
-        ownTip:Hide()
-    end
-    shownName = nil
-end
-
--- our tooltip at the cursor, following it the way the game tooltip does (ANCHOR_CURSOR: the client moves it)
-local function showOwn(name, id, data)
-    ownTip:SetOwner(UIParent, "ANCHOR_CURSOR")
-    ownTip:ClearLines()
-    ownTip:AddLine(name, 1, 1, 1)
-    -- whatever else the client says of it, readable lines only
-    local lines = data.lines
-    for index = 2, math.min(#lines, 8) do
-        local line = lines[index]
-        local text = type(line) == "table" and readableString(line.leftText) or nil
-        if text and text ~= "" then
-            ownTip:AddLine(text, 1, 1, 1, true)
-        end
-    end
-    ns.BeginTrace("camp cursor", ownTip)
-    addLines(ownTip, Camp.Lines(id) or {})
-    ownTip:Show()
-    shownName = name
-    Camp.stats.cursorShown = (Camp.stats.cursorShown or 0) + 1
-end
-
--- one look at what the world cursor points at: a camp object gets our tooltip, anything else takes it away
-local function check()
-    if not ownTip or not ns:GetOption("camp") or GameTooltip:IsShown() or not mouseOnWorld() then
-        hideOwn()
-        return
-    end
-    local data = cursorData()
-    local lines = data and data.lines
-    local first = type(lines) == "table" and lines[1] or nil
-    local name = type(first) == "table" and readableString(first.leftText) or nil
-    if not name or name == "" then
-        hideOwn()
-        return
-    end
-    local id = objectByName(name)
-    if not id then
-        -- a thing seen through the cursor only, for the report: the real name of a seat is learned here
-        rememberDistinct(Camp.stats.cursorNames, name, 20)
-        hideOwn()
-        return
-    end
-    if shownName ~= name or not ownTip:IsShown() then
-        showOwn(name, id, data)
-    end
-end
-
-local function stopWatching(err)
-    watcher:Hide()
-    watcher:SetScript("OnUpdate", nil)
-    Camp.cursor.watching, Camp.cursor.error = false, tostring(err)
-    ns:Log("camp cursor stopped", tostring(err))
-end
-
--- The watcher is a frame shown only while there is a reason to look: a second after a cursor change
--- (the data can lag the cursor), and as long as our tooltip is up (to take it away when the cursor
--- leaves). Hidden, its OnUpdate does not run: nothing of ours works between one cursor change and the next.
-local function onWatch(_, elapsed)
-    elapsed = elapsed or 0
-    sinceCheck, watchLeft = sinceCheck + elapsed, watchLeft - elapsed
-    if sinceCheck < CURSOR_INTERVAL then
-        return
-    end
-    sinceCheck = 0
-    local ok, err = pcall(check)
-    if not ok then
-        stopWatching(err) -- one error is enough: the watcher stops rather than erring every frame
-        return
-    end
-    if not shownName and watchLeft <= 0 then
-        watcher:Hide()
-    end
-end
-
-function Camp.Watching()
-    return watcher ~= nil and watcher:IsShown()
-end
-
--- CURSOR_CHANGED: the cursor took another shape - over a seat, an object, a unit, or back to the arrow
-ns:On("CURSOR_CHANGED", function()
-    if not watcher or not Camp.cursor.watching then
-        return
-    end
-    Camp.stats.cursorEvents = (Camp.stats.cursorEvents or 0) + 1
-    local ok, err = pcall(check)
-    if not ok then
-        stopWatching(err)
-        return
-    end
-    sinceCheck, watchLeft = 0, LOOK_AGAIN
-    watcher:Show()
-end)
-
-ns:Listen("LOGIN", function()
-    if type(CreateFrame) ~= "function" then
-        return
-    end
-    ownTip = CreateFrame("GameTooltip", "AKForeverTooltipCampTip", UIParent, "GameTooltipTemplate")
-    watcher = CreateFrame("Frame")
-    watcher:Hide()
-    watcher:SetScript("OnUpdate", onWatch)
-    Camp.cursor = {
-        watching = true,
-        worldCursor = type(C_TooltipInfo) == "table" and type(C_TooltipInfo.GetWorldCursor) == "function",
-        event = ns.unknownEvents["CURSOR_CHANGED"] ~= true,
-        foci = type(GetMouseFoci) == "function" and "GetMouseFoci" or (type(GetMouseFocus) == "function" and "GetMouseFocus" or "none"),
-    }
-end)
-
 -- the buffs on you, for the report: a camp's buffs are told apart by their names and spell ids, and
 -- whatever a camp writes on them (a stack that counts its objects, say) is read from there. Nothing
 -- secret is read: a secret field is marked and left alone.
@@ -650,7 +497,7 @@ function Camp.Describe()
     for _ in pairs(OBJECTS) do
         known = known + 1
     end
-    return { items = Camp.stats.items, objects = Camp.stats.objects, lines = Camp.stats.lines, unmatched = Camp.stats.unmatched, unitNames = Camp.stats.unitNames, objectLines = Camp.stats.objectLines, buffs = Camp.Buffs(), cursorNames = Camp.stats.cursorNames, cursor = Camp.cursor, cursorShown = Camp.stats.cursorShown or 0, cursorEvents = Camp.stats.cursorEvents or 0, known = known,
+    return { items = Camp.stats.items, objects = Camp.stats.objects, lines = Camp.stats.lines, unmatched = Camp.stats.unmatched, unitNames = Camp.stats.unitNames, objectLines = Camp.stats.objectLines, buffs = Camp.Buffs(), known = known,
         lastNow = Camp.lastNow, lastIcon = Camp.lastIcon,
         client = { getItemSpell = type(C_Item) == "table" and type(C_Item.GetItemSpell) == "function" and "C_Item" or (type(GetItemSpell) == "function" and "global" or "none"),
             spellDescription = type(C_Spell) == "table" and type(C_Spell.GetSpellDescription), spellTexture = type(C_Spell) == "table" and type(C_Spell.GetSpellTexture),

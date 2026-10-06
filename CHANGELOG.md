@@ -1,5 +1,12 @@
 # AKForeverTooltip
 
+## 0.2.3
+
+- **The camp chair has its line.** The chair standing at a camp is called just "Chair" by the client, a
+  name too short for the tolerant match, so it was the one camp object without a line. It is known by that
+  name now. (Another chair called "Chair" would get the line too; none has been met.) The 0.2.2 seat
+  tooltip, built on the belief that a chair had no tooltip at all, is gone: the chair had one all along.
+
 ## 0.2.2
 
 - **Camp objects say what they bring.** Forever's campfire furniture - the Fish Bowl, Lodestone, Faction

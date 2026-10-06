@@ -610,61 +610,10 @@ scenario("a camp object's tooltip says the buff it brings; an upgrade names the 
     local buffs = ns.Camp.Describe().buffs
     equal(#buffs, 2); equal(buffs[1], "Lodestone #1234 3600s x1"); equal(buffs[2], "<secret> #? ?s x1")
     Mock.state.auras = nil
-    -- a seat has no game tooltip: a camp object the world cursor points at while the game tooltip is
-    -- hidden gets a tooltip of our own, with the camp lines; it goes when the cursor leaves. The cursor
-    -- change is the event: between one and the next nothing of ours runs, except while our tooltip is up
-    local own = AKForeverTooltipCampTip
-    local cursor = ns.Camp.Describe().cursor
-    check(own and cursor.worldCursor and cursor.event, "our own tooltip exists, the world cursor is read, the cursor event is known")
-    check(not ns.Camp.Watching(), "nothing to look at: no frame work")
-    Mock.state.worldCursor = { lines = { { leftText = "Camp Tent" }, { leftText = Mock.SECRET }, { leftText = "Sit" } } }
-    Mock.fire("CURSOR_CHANGED", false, 2, 1, 0)
-    local function ownTexts()
-        local texts = {}
-        for _, line in ipairs(own.__lines or {}) do texts[#texts + 1] = line.text end
-        return table.concat(texts, " | ")
-    end
-    check(own:IsShown(), "shown over the tent"); equal(ownTexts(), "Camp Tent | Sit | Camp: rested experience up to 5% of a level, once an hour")
-    equal(own.__anchorType, "ANCHOR_CURSOR", "it follows the mouse the way the game tooltip does")
-    equal(ns.Camp.Describe().cursorShown, 1)
-    Mock.tick(0.25)
-    equal(ns.Camp.Describe().cursorShown, 1, "the same object stays shown, not rebuilt")
-    check(ns.Camp.Watching(), "while ours is up the watcher looks on")
-    -- the game's own tooltip up (an object the client names): ours goes
-    Mock.state.worldCursor = { lines = { { leftText = "Lodestone" } } }
-    GameTooltip.__shown = true
-    Mock.tick(0.25)
-    check(not own:IsShown(), "the game's tooltip is up: ours hides")
-    GameTooltip.__shown = false
-    -- the data lagging the cursor: the look again a moment after the change finds it
-    Mock.state.worldCursor = nil
-    Mock.fire("CURSOR_CHANGED", false, 2, 1, 0)
-    check(not own:IsShown())
-    Mock.state.worldCursor = { lines = { { leftText = "Camp Tent" } } }
-    Mock.tick(0.25)
-    check(own:IsShown(), "found on the look again")
-    -- the cursor back to the arrow over nothing: ours goes, and a second later the watcher sleeps
-    Mock.state.worldCursor = nil
-    Mock.fire("CURSOR_CHANGED", true, 0, 2, 0)
-    check(not own:IsShown())
-    for _ = 1, 6 do Mock.tick(0.25) end
-    check(not ns.Camp.Watching(), "nothing of ours on the screen: the watcher sleeps")
-    -- a name the cursor sees that is no camp object: written down for the report, nothing shown
-    Mock.state.worldCursor = { lines = { { leftText = "Wooden Bench" } } }
-    Mock.fire("CURSOR_CHANGED", false, 2, 1, 0)
-    check(not own:IsShown() and ns.Camp.Describe().cursorNames[1] == "Wooden Bench", "an unknown seat is written down")
-    -- the mouse on a frame of the UI: nothing of ours
-    Mock.state.worldCursor = { lines = { { leftText = "Camp Tent" } } }
-    Mock.state.mouseFoci = { UIParent }
-    Mock.fire("CURSOR_CHANGED", false, 2, 1, 0)
-    check(not own:IsShown(), "the mouse is on the UI")
-    Mock.state.mouseFoci = nil
-    -- a secret name (in a fight): nothing read, nothing shown
-    Mock.state.worldCursor = { lines = { { leftText = Mock.SECRET } } }
-    Mock.fire("CURSOR_CHANGED", false, 2, 1, 0)
-    check(not own:IsShown(), "a secret name is not looked at")
-    Mock.state.worldCursor = nil
-    equal(ns.Camp.Describe().cursorEvents, 6)
+    -- the camp chair: the world calls it just "Chair" (seen 2026-10-06), and that name is known
+    GameTooltip.__lines = nil
+    Mock.showObjectTooltip("Chair")
+    check(plainTexts():find("Camp buff: 2% critical strike chance", 1, true) and plainTexts():find("Moonkin Aura", 1, true), plainTexts())
     check(#Mock.errors == 0, table.concat(Mock.errors, "\n"))
     -- the campfires: the kit in the bag, the fire in the world, the blueprint
     GameTooltip.__lines = nil
@@ -676,14 +625,18 @@ scenario("a camp object's tooltip says the buff it brings; an upgrade names the 
     GameTooltip.__lines = nil
     Mock.showItemTooltip(273087)
     check(plainTexts():find("Teaches the Journeyman Campfire | Camp: a campfire with room for 5 camp objects", 1, true), plainTexts())
-    -- a world object whose name holds ours, and one that does not: the stranger is written down for the report
+    -- a world object whose name holds ours, the chair the world calls just "Chair" (seen 2026-10-06), and a
+    -- stranger, written down for the report
     GameTooltip.__lines = nil
     Mock.showObjectTooltip("Camp Chair (Bu's)")
     check(plainTexts():find("Camp buff: 2% critical strike chance", 1, true), plainTexts())
     GameTooltip.__lines = nil
     Mock.showObjectTooltip("Chair")
-    check(not plainTexts():find("Camp", 1, true), "a plain chair is no camp chair")
-    check(ns.Camp.Describe().unmatched[1] == "Copper Vein" and ns.Camp.Describe().unmatched[2] == "Chair", table.concat(ns.Camp.Describe().unmatched, ","))
+    check(plainTexts():find("Camp buff: 2% critical strike chance", 1, true) and plainTexts():find("Moonkin Aura", 1, true), "the chair at the camp: " .. plainTexts())
+    GameTooltip.__lines = nil
+    Mock.showObjectTooltip("Mailbox")
+    check(not plainTexts():find("Camp", 1, true), "a mailbox is no camp object")
+    check(ns.Camp.Describe().unmatched[1] == "Copper Vein" and ns.Camp.Describe().unmatched[2] == "Mailbox", table.concat(ns.Camp.Describe().unmatched, ","))
     equal(ns.Camp.ObjectByName("camp-chair"), 279979); equal(ns.Camp.ObjectByName("Lodestone"), 279960)
     -- a chair is a seat, which the client may hand over as a creature: the unit tooltip matches the name too
     state.units.chair = { name = "Camp Chair", player = false }
