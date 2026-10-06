@@ -611,44 +611,60 @@ scenario("a camp object's tooltip says the buff it brings; an upgrade names the 
     equal(#buffs, 2); equal(buffs[1], "Lodestone #1234 3600s x1"); equal(buffs[2], "<secret> #? ?s x1")
     Mock.state.auras = nil
     -- a seat has no game tooltip: a camp object the world cursor points at while the game tooltip is
-    -- hidden gets a tooltip of our own, with the camp lines; it goes when the cursor leaves
+    -- hidden gets a tooltip of our own, with the camp lines; it goes when the cursor leaves. The cursor
+    -- change is the event: between one and the next nothing of ours runs, except while our tooltip is up
     local own = AKForeverTooltipCampTip
-    check(own and ns.Camp.Describe().cursor.worldCursor, "our own tooltip exists and the world cursor is read")
+    local cursor = ns.Camp.Describe().cursor
+    check(own and cursor.worldCursor and cursor.event, "our own tooltip exists, the world cursor is read, the cursor event is known")
+    check(not ns.Camp.Watching(), "nothing to look at: no frame work")
     Mock.state.worldCursor = { lines = { { leftText = "Camp Tent" }, { leftText = Mock.SECRET }, { leftText = "Sit" } } }
-    Mock.tick(0.25)
+    Mock.fire("CURSOR_CHANGED", false, 2, 1, 0)
     local function ownTexts()
         local texts = {}
         for _, line in ipairs(own.__lines or {}) do texts[#texts + 1] = line.text end
         return table.concat(texts, " | ")
     end
     check(own:IsShown(), "shown over the tent"); equal(ownTexts(), "Camp Tent | Sit | Camp: rested experience up to 5% of a level, once an hour")
-    check(own.__point and own.__point[1] == "BOTTOMLEFT", "placed by the cursor")
+    equal(own.__anchorType, "ANCHOR_CURSOR", "it follows the mouse the way the game tooltip does")
     equal(ns.Camp.Describe().cursorShown, 1)
     Mock.tick(0.25)
     equal(ns.Camp.Describe().cursorShown, 1, "the same object stays shown, not rebuilt")
-    -- the game's own tooltip up (an object the client names): ours stays away
+    check(ns.Camp.Watching(), "while ours is up the watcher looks on")
+    -- the game's own tooltip up (an object the client names): ours goes
     Mock.state.worldCursor = { lines = { { leftText = "Lodestone" } } }
     GameTooltip.__shown = true
     Mock.tick(0.25)
     check(not own:IsShown(), "the game's tooltip is up: ours hides")
     GameTooltip.__shown = false
+    -- the data lagging the cursor: the look again a moment after the change finds it
+    Mock.state.worldCursor = nil
+    Mock.fire("CURSOR_CHANGED", false, 2, 1, 0)
+    check(not own:IsShown())
+    Mock.state.worldCursor = { lines = { { leftText = "Camp Tent" } } }
+    Mock.tick(0.25)
+    check(own:IsShown(), "found on the look again")
+    -- the cursor back to the arrow over nothing: ours goes, and a second later the watcher sleeps
+    Mock.state.worldCursor = nil
+    Mock.fire("CURSOR_CHANGED", true, 0, 2, 0)
+    check(not own:IsShown())
+    for _ = 1, 6 do Mock.tick(0.25) end
+    check(not ns.Camp.Watching(), "nothing of ours on the screen: the watcher sleeps")
     -- a name the cursor sees that is no camp object: written down for the report, nothing shown
     Mock.state.worldCursor = { lines = { { leftText = "Wooden Bench" } } }
-    Mock.tick(0.25)
+    Mock.fire("CURSOR_CHANGED", false, 2, 1, 0)
     check(not own:IsShown() and ns.Camp.Describe().cursorNames[1] == "Wooden Bench", "an unknown seat is written down")
     -- the mouse on a frame of the UI: nothing of ours
     Mock.state.worldCursor = { lines = { { leftText = "Camp Tent" } } }
     Mock.state.mouseFoci = { UIParent }
-    Mock.tick(0.25)
+    Mock.fire("CURSOR_CHANGED", false, 2, 1, 0)
     check(not own:IsShown(), "the mouse is on the UI")
     Mock.state.mouseFoci = nil
-    -- a secret name (in a fight): nothing read, nothing shown; nothing under the cursor: nothing
+    -- a secret name (in a fight): nothing read, nothing shown
     Mock.state.worldCursor = { lines = { { leftText = Mock.SECRET } } }
-    Mock.tick(0.25)
+    Mock.fire("CURSOR_CHANGED", false, 2, 1, 0)
     check(not own:IsShown(), "a secret name is not looked at")
     Mock.state.worldCursor = nil
-    Mock.tick(0.25)
-    check(not own:IsShown())
+    equal(ns.Camp.Describe().cursorEvents, 6)
     check(#Mock.errors == 0, table.concat(Mock.errors, "\n"))
     -- the campfires: the kit in the bag, the fire in the world, the blueprint
     GameTooltip.__lines = nil

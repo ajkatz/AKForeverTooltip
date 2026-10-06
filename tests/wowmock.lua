@@ -86,7 +86,6 @@ function methods.RegisterForClicks(self, ...) self.__clicks = { ... } end
 function methods.Show(self) self.__shown = true end
 function methods.Hide(self) self.__shown = false end
 function methods.IsShown(self) return self.__shown == true end
-function methods.GetEffectiveScale(self) return 1 end
 function methods.CreateTexture(self, name) return newWidget("Texture", name) end
 function methods.CreateFontString(self, name) return newWidget("FontString", name) end
 function methods.SetStatusBarColor(self, r, g, b) self.__barColor = { r, g, b } end
@@ -196,7 +195,7 @@ end
 function Mock.tick(elapsed)
     for _, frame in ipairs(Mock.frames) do
         local fn = frame.__scripts and frame.__scripts.OnUpdate
-        if fn then
+        if fn and frame:IsShown() then -- as in the client: a hidden frame's OnUpdate does not run
             fn(frame, elapsed)
         end
     end
@@ -348,7 +347,6 @@ function Mock.install(options)
     global("UIParent", newWidget("Frame", "UIParent"))
     global("WorldFrame", newWidget("Frame", "WorldFrame"))
     global("GetMouseFoci", function() return state.mouseFoci or { G.WorldFrame } end)
-    global("GetCursorPosition", function() return state.cursorX or 400, state.cursorY or 300 end)
     -- the world cursor: the tooltip data of what the mouse points at in the world, nil over nothing
     global("C_TooltipInfo", { GetWorldCursor = function() return state.worldCursor end })
     _G.UIParent.CreateFontString = function(_, name) return newWidget("FontString", name) end

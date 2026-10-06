@@ -301,7 +301,7 @@ end
 ------------------------------------------------------------------------
 -- The post-calls
 ------------------------------------------------------------------------
-Camp.stats = { items = 0, objects = 0, lines = 0, last = {}, unmatched = {}, unitNames = {}, objectLines = {}, cursorNames = {} }
+Camp.stats = { items = 0, objects = 0, lines = 0, unmatched = {}, unitNames = {}, objectLines = {}, cursorNames = {} }
 
 local function remember(list, what, limit)
     list[#list + 1] = what
@@ -334,7 +334,6 @@ function Camp.Add(tooltip, data)
         return
     end
     ns.BeginTrace("camp post-call", tooltip)
-    remember(Camp.stats.last, { item = id })
     addLines(tooltip, lines)
 end
 
@@ -408,7 +407,6 @@ function Camp.AddObject(tooltip, data)
         return
     end
     ns.BeginTrace("camp object post-call", tooltip)
-    remember(Camp.stats.last, { object = name })
     addLines(tooltip, words)
 end
 
@@ -446,7 +444,6 @@ function Camp.AddUnit(tooltip, unit)
         return
     end
     ns.BeginTrace("camp unit post-call", tooltip)
-    remember(Camp.stats.last, { unit = name })
     addLines(tooltip, lines)
 end
 
@@ -458,9 +455,11 @@ end
 -- be built from. So while the game tooltip is hidden and the mouse is on the world, a camp object
 -- under the cursor gets a small tooltip of our own: our frame, our lines, nothing secret on it.
 ------------------------------------------------------------------------
-local CURSOR_INTERVAL = 0.2
+local CURSOR_INTERVAL = 0.2 -- seconds between looks while there is a reason to look
+local LOOK_AGAIN = 1.0      -- seconds after a cursor change in which the world cursor is still asked: its data can lag the cursor
 local ownTip, watcher
-local sinceCheck, shownName = 0, nil
+local shownName
+local sinceCheck, watchLeft = 0, 0
 
 local function rememberDistinct(list, what, limit)
     for _, known in ipairs(list) do
@@ -501,15 +500,9 @@ local function hideOwn()
     shownName = nil
 end
 
-local function placeOwn()
-    local x, y = GetCursorPosition()
-    local scale = ownTip:GetEffectiveScale()
-    ownTip:ClearAllPoints()
-    ownTip:SetPoint("BOTTOMLEFT", UIParent, "BOTTOMLEFT", x / scale + 18, y / scale + 12)
-end
-
+-- our tooltip at the cursor, following it the way the game tooltip does (ANCHOR_CURSOR: the client moves it)
 local function showOwn(name, id, data)
-    ownTip:SetOwner(UIParent, "ANCHOR_NONE")
+    ownTip:SetOwner(UIParent, "ANCHOR_CURSOR")
     ownTip:ClearLines()
     ownTip:AddLine(name, 1, 1, 1)
     -- whatever else the client says of it, readable lines only
@@ -523,22 +516,14 @@ local function showOwn(name, id, data)
     end
     ns.BeginTrace("camp cursor", ownTip)
     addLines(ownTip, Camp.Lines(id) or {})
-    placeOwn()
     ownTip:Show()
     shownName = name
     Camp.stats.cursorShown = (Camp.stats.cursorShown or 0) + 1
 end
 
-local function onUpdate(elapsed)
-    if shownName then
-        placeOwn()
-    end
-    sinceCheck = sinceCheck + (elapsed or 0)
-    if sinceCheck < CURSOR_INTERVAL then
-        return
-    end
-    sinceCheck = 0
-    if not ns:GetOption("camp") or GameTooltip:IsShown() or not mouseOnWorld() then
+-- one look at what the world cursor points at: a camp object gets our tooltip, anything else takes it away
+local function check()
+    if not ownTip or not ns:GetOption("camp") or GameTooltip:IsShown() or not mouseOnWorld() then
         hideOwn()
         return
     end
@@ -562,23 +547,66 @@ local function onUpdate(elapsed)
     end
 end
 
+local function stopWatching(err)
+    watcher:Hide()
+    watcher:SetScript("OnUpdate", nil)
+    Camp.cursor.watching, Camp.cursor.error = false, tostring(err)
+    ns:Log("camp cursor stopped", tostring(err))
+end
+
+-- The watcher is a frame shown only while there is a reason to look: a second after a cursor change
+-- (the data can lag the cursor), and as long as our tooltip is up (to take it away when the cursor
+-- leaves). Hidden, its OnUpdate does not run: nothing of ours works between one cursor change and the next.
+local function onWatch(_, elapsed)
+    elapsed = elapsed or 0
+    sinceCheck, watchLeft = sinceCheck + elapsed, watchLeft - elapsed
+    if sinceCheck < CURSOR_INTERVAL then
+        return
+    end
+    sinceCheck = 0
+    local ok, err = pcall(check)
+    if not ok then
+        stopWatching(err) -- one error is enough: the watcher stops rather than erring every frame
+        return
+    end
+    if not shownName and watchLeft <= 0 then
+        watcher:Hide()
+    end
+end
+
+function Camp.Watching()
+    return watcher ~= nil and watcher:IsShown()
+end
+
+-- CURSOR_CHANGED: the cursor took another shape - over a seat, an object, a unit, or back to the arrow
+ns:On("CURSOR_CHANGED", function()
+    if not watcher or not Camp.cursor.watching then
+        return
+    end
+    Camp.stats.cursorEvents = (Camp.stats.cursorEvents or 0) + 1
+    local ok, err = pcall(check)
+    if not ok then
+        stopWatching(err)
+        return
+    end
+    sinceCheck, watchLeft = 0, LOOK_AGAIN
+    watcher:Show()
+end)
+
 ns:Listen("LOGIN", function()
     if type(CreateFrame) ~= "function" then
         return
     end
     ownTip = CreateFrame("GameTooltip", "AKForeverTooltipCampTip", UIParent, "GameTooltipTemplate")
     watcher = CreateFrame("Frame")
-    Camp.cursor = { watching = true, worldCursor = type(C_TooltipInfo) == "table" and type(C_TooltipInfo.GetWorldCursor) == "function",
-        foci = type(GetMouseFoci) == "function" and "GetMouseFoci" or (type(GetMouseFocus) == "function" and "GetMouseFocus" or "none") }
-    watcher:SetScript("OnUpdate", function(_, elapsed)
-        local ok, err = pcall(onUpdate, elapsed)
-        if not ok then
-            -- one error is enough: the watcher stops rather than erring every frame
-            watcher:SetScript("OnUpdate", nil)
-            Camp.cursor.watching, Camp.cursor.error = false, tostring(err)
-            ns:Log("camp cursor stopped", tostring(err))
-        end
-    end)
+    watcher:Hide()
+    watcher:SetScript("OnUpdate", onWatch)
+    Camp.cursor = {
+        watching = true,
+        worldCursor = type(C_TooltipInfo) == "table" and type(C_TooltipInfo.GetWorldCursor) == "function",
+        event = ns.unknownEvents["CURSOR_CHANGED"] ~= true,
+        foci = type(GetMouseFoci) == "function" and "GetMouseFoci" or (type(GetMouseFocus) == "function" and "GetMouseFocus" or "none"),
+    }
 end)
 
 -- the buffs on you, for the report: a camp's buffs are told apart by their names and spell ids, and
@@ -622,7 +650,7 @@ function Camp.Describe()
     for _ in pairs(OBJECTS) do
         known = known + 1
     end
-    return { items = Camp.stats.items, objects = Camp.stats.objects, lines = Camp.stats.lines, last = Camp.stats.last, unmatched = Camp.stats.unmatched, unitNames = Camp.stats.unitNames, objectLines = Camp.stats.objectLines, buffs = Camp.Buffs(), cursorNames = Camp.stats.cursorNames, cursor = Camp.cursor, cursorShown = Camp.stats.cursorShown or 0, known = known,
+    return { items = Camp.stats.items, objects = Camp.stats.objects, lines = Camp.stats.lines, unmatched = Camp.stats.unmatched, unitNames = Camp.stats.unitNames, objectLines = Camp.stats.objectLines, buffs = Camp.Buffs(), cursorNames = Camp.stats.cursorNames, cursor = Camp.cursor, cursorShown = Camp.stats.cursorShown or 0, cursorEvents = Camp.stats.cursorEvents or 0, known = known,
         lastNow = Camp.lastNow, lastIcon = Camp.lastIcon,
         client = { getItemSpell = type(C_Item) == "table" and type(C_Item.GetItemSpell) == "function" and "C_Item" or (type(GetItemSpell) == "function" and "global" or "none"),
             spellDescription = type(C_Spell) == "table" and type(C_Spell.GetSpellDescription), spellTexture = type(C_Spell) == "table" and type(C_Spell.GetSpellTexture),
