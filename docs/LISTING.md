@@ -62,6 +62,10 @@ client would leave enemy tooltips empty in a fight. What is shown is what the cl
 
 MIT licensed. Code, issues and the changelog: https://github.com/ajkatz/AKForeverTooltip
 
+### Community
+
+Questions, bug reports and ideas for the AKForever addons: join the Discord - https://discord.gg/cFvvvHVm4J
+
 ## Logo and screenshots
 
 Logo (400 x 400): `..\ForeverBranding\out\AKForeverTooltip\logo-400.png` (master: `logo-1024.png`).
