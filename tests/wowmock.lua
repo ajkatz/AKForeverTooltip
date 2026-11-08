@@ -462,7 +462,7 @@ function Mock.install(options)
     end
     if not options.noPostCalls then
         local postCalls = {}
-        global("Enum", { TooltipDataType = { Item = 0, Spell = 1, Unit = 2, Object = 4 } })
+        global("Enum", { TooltipDataType = { Item = 0, Spell = 1, Unit = 2, Object = 4, Macro = 25 } })
         -- the character's level, and the game's highest
         global("UnitLevel", function(unit) return unit == "player" and (state.level or 30) or 0 end)
         global("GetMaxLevelForPlayerExpansion", function() return 60 end)
@@ -491,7 +491,50 @@ function Mock.install(options)
             GetSpellDescription = function(spellID) return state.spellDescriptions[spellID] or "" end,
             RequestLoadSpellData = function(spellID) state.requestedSpells[#state.requestedSpells + 1] = spellID end,
             GetSpellTexture = function(spellID) return state.spellTextures[spellID] end,
+            -- [spellID] = name; by id or by name, as the client answers
+            GetSpellInfo = function(which)
+                for id, name in pairs(state.spellNames or {}) do
+                    if which == id or which == name then return { spellID = id, name = name } end
+                end
+            end,
+            -- [spellID] = mana; the client's shape: a list of { type, name, cost }
+            GetSpellPowerCost = function(spellID)
+                local cost = (state.spellCosts or {})[spellID]
+                if cost == nil then return nil end
+                if type(cost) == "table" then return cost end
+                return { { type = 0, name = "MANA", cost = cost, minCost = cost } }
+            end,
         })
+        -- action buttons and macros: [slot] = { kind, id, subType }; [macroIndex] = spellID
+        state.actions = state.actions or {}
+        state.macroSpells = state.macroSpells or {}
+        global("GetActionInfo", function(slot)
+            local a = state.actions[slot]
+            if a then return a[1], a[2], a[3] end
+        end)
+        global("GetMacroSpell", function(index) return state.macroSpells[index] end)
+        -- the character sheet's main-hand swing: { min, max }, or Mock.SECRET
+        global("UnitDamage", function(unit)
+            local d = state.unitDamage
+            if d == Mock.SECRET then return Mock.SECRET, Mock.SECRET, 0, 0, 0, 0, 1 end
+            if d then return d[1], d[2], d[3] or 0, d[4] or 0, 0, 0, 1 end
+        end)
+        global("UnitAttackSpeed", function(unit)
+            local s = state.attackSpeed
+            if s then return s[1], s[2] end
+        end)
+        -- the wand: { speed, min, max }
+        global("UnitRangedDamage", function(unit)
+            local w = state.rangedDamage
+            if w then return w[1], w[2], w[3], 0, 0, 1 end
+        end)
+        function Mock.showMacroTooltip(owner, lines, id, tooltip)
+            tooltip = tooltip or G.GameTooltip
+            tooltip.__owner = owner
+            for _, fn in ipairs(postCalls[G.Enum.TooltipDataType.Macro] or {}) do
+                fn(tooltip, { type = G.Enum.TooltipDataType.Macro, id = id, lines = lines })
+            end
+        end
         global("TooltipDataProcessor", {
             AddTooltipPostCall = function(dataType, fn)
                 postCalls[dataType] = postCalls[dataType] or {}
@@ -500,10 +543,10 @@ function Mock.install(options)
         })
         -- Blizzard shows a unit tooltip: default anchor (world units), build the lines, run the post calls
         -- a spell or an item tooltip: the id arrives in the data, as Blizzard hands it over
-        function Mock.showSpellTooltip(id, tooltip)
+        function Mock.showSpellTooltip(id, tooltip, lines)
             tooltip = tooltip or G.GameTooltip
             for _, fn in ipairs(postCalls[G.Enum.TooltipDataType.Spell] or {}) do
-                fn(tooltip, { type = G.Enum.TooltipDataType.Spell, id = id })
+                fn(tooltip, { type = G.Enum.TooltipDataType.Spell, id = id, lines = lines })
             end
         end
 

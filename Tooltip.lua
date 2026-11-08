@@ -674,7 +674,7 @@ end
 ------------------------------------------------------------------------
 -- Wiring
 ------------------------------------------------------------------------
-Tooltip.hooks = { anchor = false, unit = false, spell = false, item = false, object = false }
+Tooltip.hooks = { anchor = false, unit = false, spell = false, item = false, object = false, macro = false }
 
 ns:Listen("LOGIN", function()
     if type(hooksecurefunc) == "function" and type(_G.GameTooltip_SetDefaultAnchor) == "function" then
@@ -694,11 +694,23 @@ ns:Listen("LOGIN", function()
                     if what == "item" and ns.Camp then
                         ns.SafeCall(ns.Camp.Add, tooltip, data)
                     end
+                    if what == "spell" and ns.Spell then
+                        ns.SafeCall(ns.Spell.Add, tooltip, data)
+                    end
                     ns.SafeCall(addID, tooltip, data, what)
                 end)
                 Tooltip.hooks[what] = true
             end
         end
+    end
+
+    -- a macro on an action button (#showtooltip): its own kind of tooltip, the spell's lines inside
+    local macroType = kinds and kinds.Macro
+    if TooltipDataProcessor and TooltipDataProcessor.AddTooltipPostCall and macroType ~= nil and ns.Spell then
+        TooltipDataProcessor.AddTooltipPostCall(macroType, function(tooltip, data)
+            ns.SafeCall(ns.Spell.AddMacro, tooltip, data)
+        end)
+        Tooltip.hooks.macro = true
     end
 
     -- a camp object standing in the world: its own kind of tooltip
@@ -831,9 +843,9 @@ end)
 -- whether it is there at all.
 local LINES = { health = "the hp / power lines", targetofttarget = false,
     targetoftarget = "who they are hitting", range = "roughly how far away", petmood = "your pet's mood",
-    ids = "the spell or item id", camp = "a camp object's buff" }
+    ids = "the spell or item id", camp = "a camp object's buff", efficiency = "damage / heal per mana", hits = "hit and crit rows" }
 local LINE_OPTIONS = { health = "health", targetoftarget = "targetOfTarget", range = "range",
-    petmood = "petMood", ids = "ids", camp = "camp" }
+    petmood = "petMood", ids = "ids", camp = "camp", efficiency = "efficiency", hits = "hitRows" }
 
 ns:RegisterCommand("lines", "which extra lines to show: /ftt lines range off, /ftt lines ids on, or /ftt lines to list them", function(rest)
     local which, value = string.match(rest or "", "^%s*(%S*)%s*(%S*)%s*$")

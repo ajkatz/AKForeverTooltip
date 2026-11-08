@@ -12,5 +12,6 @@
 
 Core.lua
 Camp.lua
+Spell.lua
 Tooltip.lua
 Diagnostics.lua

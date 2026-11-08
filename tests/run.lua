@@ -552,6 +552,243 @@ scenario("the id on a spell and on an item, and never on a unit", function()
     check(not textsOf():find("spell", 1, true), textsOf())
 end)
 
+scenario("a spell's words and its mana: damage per mana, heal per mana - ranges by their middle, over time in full, ticks counted; yards, seconds, percentages and absorbs are no amounts", function()
+    local ns = start()
+    local A = ns.Spell.Amounts
+    local function amounts(text)
+        local t = A(text)
+        return t and string.format("%s/%s", tostring(t.damage), tostring(t.heal)) or "none"
+    end
+    -- Frostbolt: a range, then a slow with a percentage and seconds
+    equal(amounts("Launches a bolt of frost at the enemy, causing 20 to 22 Frost damage and slowing movement speed by 40% for 5 sec."), "21.0/nil")
+    -- Fireball: direct plus over time
+    equal(amounts("Hurls a fiery ball that causes 14 to 22 Fire damage and an additional 2 Fire damage over 4 sec."), "20.0/nil")
+    -- Shadow Word: Pain, Corruption: over time only
+    equal(amounts("A word of darkness that causes 30 Shadow damage over 18 sec."), "30/nil")
+    -- Immolate
+    equal(amounts("Burns the enemy for 11 Fire damage and then an additional 20 Fire damage over 15 sec."), "31/nil")
+    -- Arcane Missiles: per second, for three seconds
+    equal(amounts("Launches Arcane Missiles at the enemy, causing 26 Arcane damage each second for 3 sec."), "78/nil")
+    -- every 2 sec for 10 sec
+    equal(amounts("Deals 12 Nature damage every 2 sec for 10 sec."), "60.0/nil")
+    -- heals
+    equal(amounts("Heal your target for 47 to 58."), "nil/52.5")
+    equal(amounts("Heals a friendly target for 36 to 47."), "nil/41.5")
+    -- Renew: "damage" in a heal's clause is a heal
+    equal(amounts("Heals the target of 45 damage over 15 sec."), "nil/45")
+    -- Regrowth: direct, and another over time
+    equal(amounts("Heals a friendly target for 93 to 107 and another 98 over 21 sec."), "nil/198.0")
+    -- Holy Nova: both
+    equal(amounts("Causes an explosion of holy light around the caster, causing 29 to 34 Holy damage to all enemy targets within 10 yards and healing all party members within 10 yards for 52 to 60."), "31.5/56.0")
+    -- Chain Heal: the first target only; "3 total targets" and "50%" are no amounts
+    equal(amounts("Heals the friendly target for 332 to 381, then jumps to heal additional nearby targets. Each jump reduces the effectiveness of the heal by 50%. Heals 3 total targets."), "nil/356.5")
+    -- a shield absorbs; a buff, a drain and nothing at all count nothing
+    equal(amounts("Draws on the soul of the party member to shield them, absorbing 48 damage. Lasts 30 sec."), "none")
+    equal(amounts("Increases the target's Intellect by 7 for 30 min."), "none")
+    equal(amounts("Transfers 10 health every 1 sec from the target to the caster. Lasts 5 sec."), "none")
+    equal(amounts(""), "none")
+    equal(amounts("Increases armor by 1,200 for 30 min."), "none")
+    equal(amounts("Heals a friendly target for 1,020 to 1,180."), "nil/1100.0")
+    -- "health" is no heal, and minutes are no amount (the totems' words, 2026-11-07)
+    equal(amounts("Summons a Magma Totem with 5 health at the feet of the caster for 20 sec that causes 22 Fire damage to creatures within 8 yards every 2 seconds."), "22/nil")
+    equal(amounts("Summons a Healing Stream Totem with 5 health at the feet of the caster for 1 min that heals group members within 20 yards for 6 every 2 seconds."), "nil/6")
+end)
+
+scenario("the efficiency lines on a spell tooltip: cost from the client (else the tooltip's '35 Mana'), words from the description (else the tooltip's lines); no mana or no amount, no line; switched off by /ftt lines efficiency off", function()
+    local ns, state = start()
+    state.spellDescriptions[116] = "Launches a bolt of frost at the enemy, causing 20 to 22 Frost damage and slowing movement speed by 40% for 5 sec."
+    state.spellCosts = { [116] = 25 }
+    Mock.showSpellTooltip(116)
+    check(textsOf():find("Damage per mana: 0.84  (21 / 25 mana)", 1, true), textsOf())
+    check(textsOf():find("spell 116", 1, true), "the id line still comes")
+
+    -- a heal
+    state.spellDescriptions[2050] = "Heal your target for 47 to 58."
+    state.spellCosts[2050] = 30
+    GameTooltip.__lines = nil
+    Mock.showSpellTooltip(2050)
+    check(textsOf():find("Heal per mana: 1.75  (52.5 / 30 mana)", 1, true), textsOf())
+    check(not textsOf():find("Damage per mana", 1, true), textsOf())
+
+    -- both lines on Holy Nova
+    state.spellDescriptions[15237] = "Causes an explosion of holy light around the caster, causing 29 to 34 Holy damage to all enemy targets within 10 yards and healing all party members within 10 yards for 52 to 60."
+    state.spellCosts[15237] = 185
+    GameTooltip.__lines = nil
+    Mock.showSpellTooltip(15237)
+    check(textsOf():find("Damage per mana: 0.17", 1, true) and textsOf():find("Heal per mana: 0.30", 1, true), textsOf())
+
+    -- no cost from the API: the tooltip's own cost line; no description: the tooltip's longest line
+    GameTooltip.__lines = nil
+    Mock.showSpellTooltip(403, nil, { { leftText = "Lightning Bolt", rightText = "Rank 1" }, { leftText = "15 Mana", rightText = "30 yd range" },
+        { leftText = "1.5 sec cast" }, { leftText = "Casts a bolt of lightning at the target for 15 to 17 Nature damage." } })
+    check(textsOf():find("Damage per mana: 1.07  (16 / 15 mana)", 1, true), textsOf())
+
+    -- a strike off the weapon: 150% of the character sheet's swing, a melee crit doubles
+    state.spellDescriptions[17364] = "Instantly strike for 150% weapon damage and increase the damage you deal to the target with your next Lightning Bolt, Chain Lightning, or Earth Shock spell by 20% for 12 sec."
+    state.spellCosts[17364] = 43
+    state.unitDamage = { 40, 60 }
+    GameTooltip.__lines = nil
+    Mock.showSpellTooltip(17364)
+    check(textsOf():find("Damage per mana: 1.74  (75 / 43 mana)", 1, true), textsOf())
+    check(textsOf():find("Hit: 60 to 90", 1, true) and textsOf():find("Crit: 120 to 180", 1, true), textsOf())
+    -- the swing secret (a fight): no line
+    state.unitDamage = Mock.SECRET
+    GameTooltip.__lines = nil
+    Mock.showSpellTooltip(17364)
+    check(not textsOf():find("per mana", 1, true), textsOf())
+    equal(ns.Spell.stats.weaponUnreadable, 1)
+
+    -- Attack: the swing, per second, and a doubled crit; the off hand when there is one - for a class that dual wields
+    state.units.player = { name = "Purrdee", player = true, class = "SHAMAN" }
+    state.unitDamage = { 40, 60 }
+    state.attackSpeed = { 2.5 }
+    GameTooltip.__lines = nil
+    Mock.showSpellTooltip(6603)
+    check(textsOf():find("Hit: 40 to 60  (20.0 per sec, every 2.5 sec)", 1, true) and textsOf():find("Crit: 80 to 120", 1, true), textsOf())
+    check(not textsOf():find("per mana", 1, true), textsOf())
+    state.unitDamage = { 40, 60, 20, 30 }
+    state.attackSpeed = { 2.5, 1.5 }
+    GameTooltip.__lines = nil
+    Mock.showSpellTooltip(6603)
+    check(not textsOf():find("Off hand", 1, true), "a shaman: no off-hand row, whatever the client says - " .. textsOf())
+    state.units.player.class = "ROGUE"
+    GameTooltip.__lines = nil
+    Mock.showSpellTooltip(6603)
+    check(textsOf():find("Off hand: 20 to 30  (16.7 per sec, every 1.5 sec)", 1, true), textsOf())
+    state.units.player.class = "SHAMAN"
+    -- Shoot with a wand: x1.5 crit; known by name too
+    state.rangedDamage = { 1.6, 20, 30 }
+    GameTooltip.__lines = nil
+    Mock.showSpellTooltip(99999, nil, { { leftText = "Shoot" } })
+    check(textsOf():find("Hit: 20 to 30  (15.6 per sec, every 1.6 sec)", 1, true) and textsOf():find("Crit: 30 to 45", 1, true), textsOf())
+    -- no wand: no lines
+    state.rangedDamage = { 0, 0, 0 }
+    GameTooltip.__lines = nil
+    Mock.showSpellTooltip(5019)
+    check(not textsOf():find("Hit:", 1, true), textsOf())
+
+    -- a totem: no line at all, whatever its words say
+    state.spellDescriptions[8190] = "Summons a Magma Totem with 5 health at the feet of the caster for 20 sec that causes 22 Fire damage to creatures within 8 yards every 2 seconds."
+    state.spellCosts[8190] = 230
+    GameTooltip.__lines = nil
+    Mock.showSpellTooltip(8190)
+    check(not textsOf():find("per mana", 1, true), textsOf())
+    equal(ns.Spell.stats.totems, 1)
+
+    -- a rage or energy spell, a spell with no mana at all: no line
+    state.spellDescriptions[78] = "A strong attack that increases melee damage by 11."
+    state.spellCosts[78] = { { type = 1, name = "RAGE", cost = 15 } }
+    GameTooltip.__lines = nil
+    Mock.showSpellTooltip(78)
+    check(not textsOf():find("per mana", 1, true), textsOf())
+    -- mana, but no amount in the words (a buff)
+    state.spellDescriptions[1459] = "Increases the target's Intellect by 7 for 30 min."
+    state.spellCosts[1459] = 60
+    GameTooltip.__lines = nil
+    Mock.showSpellTooltip(1459)
+    check(not textsOf():find("per mana", 1, true), textsOf())
+    equal(ns.Spell.stats.noCost >= 1, true); equal(ns.Spell.stats.noAmount >= 1, true)
+    -- a spell the parser could not read keeps its words for the report, the tooltip's lines too
+    GameTooltip.__lines = nil
+    state.spellDescriptions[8042] = "Instantly shocks the target for a lot."
+    state.spellCosts[8042] = 45
+    Mock.showSpellTooltip(8042, nil, { { leftText = "Earth Shock", rightText = "Rank 1" }, { leftText = "45 Mana" } })
+    equal(ns.Spell.misses[8042].why, "no amount in the words")
+    equal(ns.Spell.misses[8042].description, "Instantly shocks the target for a lot.")
+    equal(ns.Spell.misses[8042].lines[1], "Earth Shock"); equal(ns.Spell.misses[8042].lines[3], "45 Mana")
+    equal(ns.Spell.misses[8042].costs[1].cost, 45)
+
+    -- a secret description or cost (a stricter client): no line, no error
+    state.spellCosts[116] = { { type = 0, name = "MANA", cost = Mock.SECRET } }
+    GameTooltip.__lines = nil
+    Mock.showSpellTooltip(116)
+
+    -- switched off
+    state.spellCosts[116] = 25
+    SlashCmdList.AKFOREVERTOOLTIP("lines efficiency off")
+    GameTooltip.__lines = nil
+    Mock.showSpellTooltip(116)
+    check(not textsOf():find("per mana", 1, true), textsOf())
+    equal(next(ns.errors), nil, "no errors")
+    equal(ns.Spell.stats.lines >= 4, true)
+end)
+
+scenario("under the per-mana line, a row for a normal hit and a row for a crit (x1.5 on the direct part; what lands over time never crits); /ftt lines hits off drops the rows", function()
+    local ns, state = start()
+    local R = function(text, kind)
+        return table.concat(ns.Spell.Rows(ns.Spell.Amounts(text).detail[kind or "damage"]), " | ")
+    end
+    equal(R("causing 20 to 22 Frost damage and slowing movement speed by 40% for 5 sec."), "  Hit: 20 to 22 |   Crit: 30 to 33")
+    equal(R("Hurls a fiery ball that causes 14 to 22 Fire damage and an additional 2 Fire damage over 4 sec."), "  Hit: 14 to 22 + 2 over time |   Crit: 21 to 33 + 2 over time")
+    equal(R("A word of darkness that causes 30 Shadow damage over 18 sec."), "  Over time: 30 (no crit)")
+    equal(R("Launches Arcane Missiles at the enemy, causing 26 Arcane damage each second for 3 sec."), "  Over time: 78 (no crit)")
+    equal(R("Heal your target for 47 to 58.", "heal"), "  Hit: 47 to 58 |   Crit: 71 to 87")
+    equal(R("Heals the target of 45 damage over 15 sec.", "heal"), "  Over time: 45 (no crit)")
+    equal(R("Heals a friendly target for 93 to 107 and another 98 over 21 sec.", "heal"), "  Hit: 93 to 107 + 98 over time |   Crit: 140 to 161 + 98 over time")
+    equal(R("Burns the enemy for 11 Fire damage and then an additional 20 Fire damage over 15 sec."), "  Hit: 11 + 20 over time |   Crit: 17 + 20 over time")
+    -- Lightning Shield: three balls, each strikes once - the total counts all three, the rows one strike
+    local shield = "Surrounds the caster with 3 balls of lightning. When a spell, melee or ranged attack hits the caster, the attacker will be struck for 13 Nature damage. This expends one lightning ball. Only one ball will fire every few seconds. Lasts 10 min."
+    equal(ns.Spell.Amounts(shield).damage, 39)
+    equal(R(shield), "  Hit: 13 each, 3 charges |   Crit: 20 each, 3 charges")
+    -- on the tooltip, under its own line
+    state.spellDescriptions[116] = "Launches a bolt of frost at the enemy, causing 20 to 22 Frost damage and slowing movement speed by 40% for 5 sec."
+    state.spellCosts = { [116] = 25 }
+    Mock.showSpellTooltip(116)
+    local lines = GameTooltip.__lines
+    equal(lines[1].text, "Damage per mana: 0.84  (21 / 25 mana)")
+    equal(lines[2].text, "  Hit: 20 to 22"); equal(lines[3].text, "  Crit: 30 to 33")
+    SlashCmdList.AKFOREVERTOOLTIP("lines hits off")
+    GameTooltip.__lines = nil
+    Mock.showSpellTooltip(116)
+    check(textsOf():find("per mana", 1, true) and not textsOf():find("Hit:", 1, true), textsOf())
+end)
+
+scenario("a #showtooltip macro on a button: its own kind of tooltip - the spell is found by the button's action (a 'spell' subtype, else GetMacroSpell), else by the first line's name; the same line as on the spell", function()
+    local ns, state = start()
+    state.spellNames = { [8050] = "Flame Shock", [403] = "Lightning Bolt", [8056] = "Frost Shock" }
+    state.spellDescriptions[8050] = "Instantly sears the target with fire, causing 25 Fire damage immediately and 28 Fire damage over 12 sec."
+    state.spellCosts = { [8050] = 55, [403] = 15, [8056] = 115 }
+    state.spellDescriptions[403] = "Casts a bolt of lightning at the target for 15 to 17 Nature damage."
+    state.spellDescriptions[8056] = "Instantly shocks the target with frost, causing 95 to 101 Frost damage and slowing movement speed to 50% of normal. Lasts 8 sec."
+    -- GetActionInfo hands the spell's id with a 'spell' subtype
+    state.actions[1] = { "macro", 8050, "spell" }
+    Mock.showMacroTooltip({ action = 1 }, { { leftText = "Flame Shock" } })
+    check(textsOf():find("Damage per mana: 0.96  (53 / 55 mana)", 1, true), textsOf())
+    equal(ns.Spell.lastMacro.route, "button")
+    check(textsOf():find("Hit: 25 + 28 over time", 1, true) and textsOf():find("Crit: 38 + 28 over time", 1, true), textsOf())
+    -- the macro's index: GetMacroSpell names the spell
+    state.actions[2] = { "macro", 7 }
+    state.macroSpells[7] = 403
+    GameTooltip.__lines = nil
+    Mock.showMacroTooltip({ action = 2 }, { { leftText = "Lightning Bolt" } })
+    check(textsOf():find("Damage per mana: 1.07", 1, true), textsOf())
+    equal(ns.Spell.lastMacro.route, "button")
+    -- what the client gave in game (2026-11-07): no slot on the button, the data's id a macro index
+    state.macroSpells[2] = 8050
+    GameTooltip.__lines = nil
+    Mock.showMacroTooltip({}, { { leftText = "" }, { leftText = "Flame Shock" } }, 2)
+    check(textsOf():find("Damage per mana: 0.96", 1, true), textsOf())
+    equal(ns.Spell.lastMacro.route, "macro index")
+    -- a candidate the lines do not confirm is passed over: macro 2 now names Lightning Bolt, the tooltip shows Frost Shock
+    state.macroSpells[2] = 403
+    GameTooltip.__lines = nil
+    Mock.showMacroTooltip({}, { { leftText = "Frost Shock" } }, 2)
+    equal(ns.Spell.lastMacro.route, "name")
+    check(textsOf():find("Damage per mana: 0.85", 1, true), textsOf())
+    -- no button to ask: the first line's name
+    GameTooltip.__lines = nil
+    Mock.showMacroTooltip(nil, { { leftText = "Frost Shock" } })
+    check(textsOf():find("Damage per mana: 0.85", 1, true), textsOf())
+    equal(ns.Spell.lastMacro.route, "name")
+    -- a macro with no spell (a /say): nothing
+    state.actions[3] = { "macro", 9 }
+    GameTooltip.__lines = nil
+    Mock.showMacroTooltip({ action = 3 }, { { leftText = "Hello" } })
+    check(not textsOf():find("per mana", 1, true), textsOf())
+    equal(ns.Spell.lastMacro.route, "none")
+    equal(next(ns.errors), nil, "no errors")
+end)
+
 scenario("a camp object's tooltip says the buff it brings; an upgrade names the buff it keeps; a blueprint says what it teaches", function()
     local ns, state = start()
     -- a first-tier object: its buff, the most of it, the class buff it stands in for - each its own line

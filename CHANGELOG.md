@@ -1,5 +1,24 @@
 # AKForeverTooltip
 
+## Unreleased
+
+- **Damage and healing per mana on spells.** A spell's tooltip says what it does for its mana - "Damage per
+  mana: 0.84 (21 / 25 mana)" on a Frostbolt, "Heal per mana: 1.75 (52.5 / 30 mana)" on a Lesser Heal -
+  from the client's cost and the spell's own words: a range counts its middle, damage or healing over time
+  counts in full, ticks are counted, a spell that both hurts and heals gets both lines. Bonus damage and
+  healing from gear and talents are not in the words, so not in the number; a shield's absorb is no heal.
+  `/ftt lines efficiency off` drops it.
+- **A row for a normal hit and a row for a crit** under it: "Hit: 20 to 22", "Crit: 30 to 33" - a crit is the
+  direct part times 1.5, what lands over time is added as it is ("Hit: 14 to 22 + 2 over time"); a spell that
+  only works over time gets one row, "Over time: 30 (no crit)". `/ftt lines hits off` drops the rows.
+  Totems get no line: what they do depends on how long they stand and what comes near.
+- **Weapon strikes and charges.** "150% weapon damage" (Stormstrike) counts that share of the swing your
+  character sheet shows, with a melee crit at double; a shield with "3 balls of lightning" counts all three.
+- **Attack and Shoot.** Your swing (and off hand, for a warrior, hunter or rogue) and your wand: hit, crit and damage per second, from the
+  character sheet - a melee crit at double, a wand's at x1.5.
+- **On macros too.** A `#showtooltip` macro on an action button is its own kind of tooltip; the spell it shows
+  gets the same lines.
+
 ## 0.2.3
 
 - **The camp chair has its line.** The chair standing at a camp is called just "Chair" by the client, a

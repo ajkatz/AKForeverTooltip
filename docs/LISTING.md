@@ -35,6 +35,9 @@ Every line can be switched off, and every one stays silent rather than guessing 
   stands in for, with that buff's icon (the two do not stack). On the item in your bags, on the blueprint, and on the
   object standing at the camp. The game's own tooltip says this for a first-tier item only; an upgrade's says "all the
   benefits of a Faction Banner" and no more.
+- **Damage and healing per mana** on your spells - "Damage per mana: 0.84 (21 / 25 mana)" on a Frostbolt,
+  "Heal per mana: 1.75" on a Lesser Heal - from the spell's own words and its cost - with a row for a normal hit and
+  one for a crit, on #showtooltip macros too.
 - **Your own pet's mood**, and the spell or item id.
 
 ### Commands
@@ -45,7 +48,7 @@ Every line can be switched off, and every one stays silent rather than guessing 
 | `/ftt offset <x> <y>` | distance from the mouse (default `16 8`) |
 | `/ftt class on\|off`, `/ftt class bar on\|off` | class colours; the health bar in the class colour or Blizzard's green |
 | `/ftt health on\|off` | the health and power lines |
-| `/ftt lines <name> on\|off` | the other lines one by one - `range`, `target`, `pet`, `ids`, `camp` ... (`/ftt lines` lists them) |
+| `/ftt lines <name> on\|off` | the other lines one by one - `range`, `target`, `pet`, `ids`, `camp`, `efficiency`, `hits` ... (`/ftt lines` lists them) |
 | `/ftt range spell <name>, <name>` | the spells whose exact range is shown; `none` drops them |
 | `/ftt color <line> <hex>` | the colour of a line (`hp`, `mana` ...), or `default` |
 | `/ftt diag` | a report into the settings file for bug reports (then `/reload`) |

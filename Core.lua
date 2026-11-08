@@ -260,6 +260,8 @@ local OPTION_DEFAULTS = {
     rangeSpell = false,  -- ... and, for one spell you name, whether it would actually reach
     petMood = true,      -- your own pet's happiness and loyalty
     ids = true,          -- the spell or item id on a spell / item tooltip
+    efficiency = true,   -- on a spell: damage per mana / heal per mana, from its words and its cost
+    hitRows = true,      -- ... and under it a row for a normal hit and a row for a crit
     camp = true,         -- on a camp object (Forever's campfire furniture): the buff it brings and the class buff it stands in for
 }
 
