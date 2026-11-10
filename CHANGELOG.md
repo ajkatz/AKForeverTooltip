@@ -1,6 +1,6 @@
 # AKForeverTooltip
 
-## Unreleased
+## 0.2.4
 
 - **Damage and healing per mana on spells.** A spell's tooltip says what it does for its mana - "Damage per
   mana: 0.84 (21 / 25 mana)" on a Frostbolt, "Heal per mana: 1.75 (52.5 / 30 mana)" on a Lesser Heal -
