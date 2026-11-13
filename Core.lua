@@ -262,6 +262,8 @@ local OPTION_DEFAULTS = {
     ids = true,          -- the spell or item id on a spell / item tooltip
     efficiency = true,   -- on a spell: damage per mana / heal per mana, from its words and its cost
     hitRows = true,      -- ... and under it a row for a normal hit and a row for a crit
+    dps = true,          -- ... and damage per second: the damage over the cast time (an instant: the GCD)
+    hps = true,          -- ... and heal per second, the same way
     camp = true,         -- on a camp object (Forever's campfire furniture): the buff it brings and the class buff it stands in for
 }
 

@@ -582,16 +582,239 @@ scenario("a spell's words and its mana: damage per mana, heal per mana - ranges 
     equal(amounts("Causes an explosion of holy light around the caster, causing 29 to 34 Holy damage to all enemy targets within 10 yards and healing all party members within 10 yards for 52 to 60."), "31.5/56.0")
     -- Chain Heal: the first target only; "3 total targets" and "50%" are no amounts
     equal(amounts("Heals the friendly target for 332 to 381, then jumps to heal additional nearby targets. Each jump reduces the effectiveness of the heal by 50%. Heals 3 total targets."), "nil/356.5")
-    -- a shield absorbs; a buff, a drain and nothing at all count nothing
+    -- a shield absorbs; a buff and nothing at all count nothing (a drain is damage since 2026-11-13)
     equal(amounts("Draws on the soul of the party member to shield them, absorbing 48 damage. Lasts 30 sec."), "none")
     equal(amounts("Increases the target's Intellect by 7 for 30 min."), "none")
-    equal(amounts("Transfers 10 health every 1 sec from the target to the caster. Lasts 5 sec."), "none")
+    equal(amounts("Transfers 10 health every 1 sec from the target to the caster. Lasts 5 sec."), "50.0/nil")
     equal(amounts(""), "none")
     equal(amounts("Increases armor by 1,200 for 30 min."), "none")
     equal(amounts("Heals a friendly target for 1,020 to 1,180."), "nil/1100.0")
     -- "health" is no heal, and minutes are no amount (the totems' words, 2026-11-07)
     equal(amounts("Summons a Magma Totem with 5 health at the feet of the caster for 20 sec that causes 22 Fire damage to creatures within 8 yards every 2 seconds."), "22/nil")
     equal(amounts("Summons a Healing Stream Totem with 5 health at the feet of the caster for 1 min that heals group members within 20 yards for 6 every 2 seconds."), "nil/6")
+end)
+
+scenario("damage per second: the damage over the seconds the cast takes - a cast time, a channel's length, an instant's global cooldown shortened by haste", function()
+    local ns, state = start()
+    state.spellCrit = 0 -- no crit here: the seconds alone (the next scenario counts the crits)
+    -- Shadow Bolt, a 3 sec cast: 3 sec
+    state.spellDescriptions[686] = "Sends a shadowy bolt at the enemy, causing 13 to 18 Shadow damage."
+    state.spellCosts = { [686] = 25 }
+    state.castTimes = { [686] = 3000 }
+    Mock.showSpellTooltip(686)
+    check(textsOf():find("Damage per second: 5.2 |", 1, true), textsOf())
+    for _, line in ipairs(GameTooltip.__lines) do
+        if tostring(line.text):find("per second", 1, true) then equal(line.text, "Damage per second: 5.2", "nothing after the number") end
+    end
+    -- the line sits right under the per mana line
+    local texts = {}
+    for _, line in ipairs(GameTooltip.__lines) do texts[#texts + 1] = line.text or line[1] end
+    for i, t in ipairs(texts) do
+        if tostring(t):find("Damage per mana", 1, true) then
+            check(tostring(texts[i + 1]):find("Damage per second", 1, true), "right under: " .. tostring(texts[i + 1]))
+        end
+    end
+    -- a cast time the client shortened (haste is in it already): 2.5 sec
+    state.castTimes[686] = 2500
+    GameTooltip.__lines = nil
+    Mock.showSpellTooltip(686)
+    check(textsOf():find("Damage per second: 6.2 |", 1, true), textsOf())
+    -- an instant: the global cooldown, 1.5 sec ...
+    state.spellDescriptions[8042] = "Instantly shocks the target with concussive force, causing 19 to 22 Nature damage."
+    state.spellCosts[8042] = 30
+    state.castTimes[8042] = 0
+    GameTooltip.__lines = nil
+    Mock.showSpellTooltip(8042)
+    check(textsOf():find("Damage per second: 13.7 |", 1, true), textsOf())
+    -- ... shortened by 25% spell haste: 1.2 sec
+    state.spellHaste = 25
+    GameTooltip.__lines = nil
+    Mock.showSpellTooltip(8042)
+    check(textsOf():find("Damage per second: 17.1 |", 1, true), textsOf())
+    -- ... never below 1 sec; a secret haste counts as none
+    state.spellHaste = 100
+    GameTooltip.__lines = nil
+    Mock.showSpellTooltip(8042)
+    check(textsOf():find("Damage per second: 20.5 |", 1, true), textsOf())
+    state.spellHaste = Mock.SECRET
+    GameTooltip.__lines = nil
+    Mock.showSpellTooltip(8042)
+    check(textsOf():find("Damage per second: 13.7 |", 1, true), textsOf())
+    state.spellHaste = nil
+    -- a channel: its length from the words, not the GCD
+    state.spellDescriptions[5143] = "Launches Arcane Missiles at the enemy, causing 26 Arcane damage each second for 3 sec."
+    state.spellCosts[5143] = 85
+    state.castTimes[5143] = 0
+    GameTooltip.__lines = nil
+    Mock.showSpellTooltip(5143, nil, { { leftText = "Arcane Missiles" }, { leftText = "85 Mana" }, { leftText = "Channeled" },
+        { leftText = "Launches Arcane Missiles at the enemy, causing 26 Arcane damage each second for 3 sec." } })
+    check(textsOf():find("Damage per second: 26.0 |", 1, true), textsOf())
+    -- no cast time from the client: the tooltip's "1.5 sec cast"
+    GameTooltip.__lines = nil
+    Mock.showSpellTooltip(403, nil, { { leftText = "Lightning Bolt", rightText = "Rank 1" }, { leftText = "15 Mana", rightText = "30 yd range" },
+        { leftText = "1.5 sec cast" }, { leftText = "Casts a bolt of lightning at the target for 15 to 17 Nature damage." } })
+    check(textsOf():find("Damage per second: 10.7 |", 1, true), textsOf())
+    -- a heal: no damage per second (its own heal per second, next scenario); switched off by /ftt lines dps off
+    state.spellDescriptions[2050] = "Heal your target for 47 to 58."
+    state.spellCosts[2050] = 30
+    state.castTimes[2050] = 1500
+    GameTooltip.__lines = nil
+    Mock.showSpellTooltip(2050)
+    check(not textsOf():find("Damage per second", 1, true), textsOf())
+    SlashCmdList.AKFOREVERTOOLTIP("lines dps off")
+    GameTooltip.__lines = nil
+    Mock.showSpellTooltip(686)
+    check(textsOf():find("Damage per mana", 1, true) and not textsOf():find("Damage per second", 1, true), textsOf())
+    SlashCmdList.AKFOREVERTOOLTIP("lines dps on")
+    equal(#Mock.errors, 0, Mock.errors[1])
+end)
+
+scenario("effective damage per second: crit chance by school, crits over time too, crit size raised by your own talents by their words", function()
+    local ns, state = start()
+    state.spellNames = { [686] = "Shadow Bolt", [172] = "Corruption", [133] = "Fireball", [8050] = "Flame Shock" }
+    state.spellDescriptions[686] = "Sends a shadowy bolt at the enemy, causing 13 to 18 Shadow damage."
+    state.spellDescriptions[172] = "Corrupts the target, causing 40 Shadow damage over 12 sec."
+    state.spellDescriptions[133] = "Hurls a fiery ball that causes 14 to 22 Fire damage and an additional 2 Fire damage over 4 sec."
+    state.spellCosts = { [686] = 25, [172] = 35, [133] = 30 }
+    state.castTimes = { [686] = 3000, [172] = 0, [133] = 1500 }
+    -- 10% crit for Shadow (school 6), 20% for Fire (3): Shadow Bolt 15.5 x (1 + 0.1 x 0.5) = 16.3 over 3 sec
+    state.spellCrit = { [6] = 10, [3] = 20 }
+    Mock.showSpellTooltip(686)
+    check(textsOf():find("Damage per second: 5.4 |", 1, true), textsOf())
+    -- a dot crits: Corruption 40 x 1.05 = 42 over the GCD
+    GameTooltip.__lines = nil
+    Mock.showSpellTooltip(172)
+    check(textsOf():find("Damage per second: 28.0 |", 1, true), textsOf())
+    check(textsOf():find("Crit: 60 over time", 1, true), "the crit row: over time crits " .. textsOf())
+    -- Fire: its own school's chance - (18 + 2) x 1.1 = 22
+    GameTooltip.__lines = nil
+    Mock.showSpellTooltip(133)
+    check(textsOf():find("Damage per second: 14.7 |", 1, true), textsOf())
+
+    -- Ruin-like: the Destruction tree's crits x2 (Shadow Bolt, not Corruption)
+    state.talents = { { rank = 1, text = "Increases the critical strike damage bonus of your Destruction spells by 100%.", spell = 17959 } }
+    state.spellNames[17959] = "Ruin"
+    ns.Spell.ForgetTalents()
+    GameTooltip.__lines = nil
+    Mock.showSpellTooltip(686)
+    -- 15.5 x (1 + 0.1 x 1) = 17.05
+    check(textsOf():find("Damage per second: 5.7 |", 1, true), textsOf())
+    check(textsOf():find("Crit: 26 to 36", 1, true), "the crit row by the talent's size: " .. textsOf())
+    GameTooltip.__lines = nil
+    Mock.showSpellTooltip(172)
+    check(textsOf():find("Damage per second: 28.0 |", 1, true), "Corruption is no Destruction spell: " .. textsOf())
+
+    -- a dot talent: periodic crits of Shadow spells +50% (x1.75), the direct part untouched
+    state.talents[2] = { rank = 2, text = "Your Shadow spells' periodic damage critical strikes deal 50% more critical strike damage.", spell = 900002 }
+    state.spellNames[900002] = "Dark Pact of Rot"
+    ns.Spell.ForgetTalents()
+    GameTooltip.__lines = nil
+    Mock.showSpellTooltip(172)
+    -- 40 x (1 + 0.1 x 0.75) = 43
+    check(textsOf():find("Damage per second: 28.7 |", 1, true), textsOf())
+    GameTooltip.__lines = nil
+    Mock.showSpellTooltip(686)
+    check(textsOf():find("Damage per second: 5.7 |", 1, true), "the dot talent is not on a direct hit: " .. textsOf())
+
+    -- a school talent (Ice Shards-like) counts for its school only; a melee talent and a tree we do not know are not counted - and reported
+    state.talents = {
+        { rank = 5, text = "Increases the critical strike damage bonus of your Fire spells by 100%.", spell = 900003 },
+        { rank = 1, text = "Increases the critical strike damage bonus of your melee attacks by 30%.", spell = 900004 },
+        { rank = 1, text = "Increases the critical strike damage of your Demonology spells by 20%.", spell = 900005 },
+        { rank = 3, text = "Increases your spell critical strike chance by 3%." },
+    }
+    state.spellNames[900003] = "Fire Shards"
+    ns.Spell.ForgetTalents()
+    GameTooltip.__lines = nil
+    Mock.showSpellTooltip(133)
+    -- direct 18 x (1 + 0.2 x 1) + 2 x (1 + 0.2 x 1) = 24
+    check(textsOf():find("Damage per second: 16.0 |", 1, true), textsOf())
+    GameTooltip.__lines = nil
+    Mock.showSpellTooltip(686)
+    check(textsOf():find("Damage per second: 5.4 |", 1, true), "Shadow is no Fire: " .. textsOf())
+    local report = ns.Spell.critTalents
+    equal(report.read, true); equal(report.talents, 4); equal(#report.crit, 3, "the three that speak of crit damage")
+    equal(report.crit[2].unread, "melee or ranged"); equal(report.crit[3].unread, "names the demonology tree")
+
+    -- the crit chance secret or missing: the plain damage, and the line says so
+    state.spellCrit = Mock.SECRET
+    GameTooltip.__lines = nil
+    Mock.showSpellTooltip(686)
+    check(textsOf():find("Damage per second: 5.2 |", 1, true), textsOf())
+    equal(#Mock.errors, 0, Mock.errors[1])
+end)
+
+scenario("heal per second: the heal with your crits in it (heals over time crit too), the class's healing school's chance, heal crit talents by their words", function()
+    local ns, state = start()
+    state.units.player = { name = "You", player = true, class = "PRIEST" }
+    state.spellNames = { [2050] = "Lesser Heal", [139] = "Renew", [5185] = "Healing Touch" }
+    state.spellDescriptions[2050] = "Heal your target for 47 to 58."
+    state.spellDescriptions[139] = "Heals the target of 45 damage over 15 sec."
+    state.spellCosts = { [2050] = 30, [139] = 30 }
+    state.castTimes = { [2050] = 1500, [139] = 0 }
+    -- Holy (school 2) 10%, Nature (4) 30%: a priest heals by Holy - 52.5 x 1.05 = 55.1 over 1.5 sec
+    state.spellCrit = { [2] = 10, [4] = 30 }
+    Mock.showSpellTooltip(2050)
+    check(textsOf():find("Heal per second: 36.8 |", 1, true), textsOf())
+    check(not textsOf():find("Damage per second", 1, true), textsOf())
+    -- a HoT crits: 45 x 1.05 = 47.25 over the GCD
+    GameTooltip.__lines = nil
+    Mock.showSpellTooltip(139)
+    check(textsOf():find("Heal per second: 31.5 |", 1, true), textsOf())
+    check(textsOf():find("Crit: 68 over time", 1, true), "the HoT's crit row: " .. textsOf())
+    -- a heal crit talent counts for heals, not for damage; a damage one not for heals
+    state.talents = {
+        { rank = 2, text = "Increases the critical effect bonus of your healing spells by 50%.", spell = 900010 },
+        { rank = 1, text = "Increases the critical strike damage bonus of your spells by 100%.", spell = 900011 },
+    }
+    ns.Spell.ForgetTalents()
+    GameTooltip.__lines = nil
+    Mock.showSpellTooltip(2050)
+    -- size 1 + 0.5 x 1.5 = 1.75: 52.5 x (1 + 0.1 x 0.75) = 56.4 -> 37.6
+    check(textsOf():find("Heal per second: 37.6 |", 1, true), textsOf())
+    check(textsOf():find("Crit: 82 to 102", 1, true), "the heal's crit row by the talent: " .. textsOf())
+    equal(ns.Spell.critTalents.crit[1].kind, "heal"); equal(ns.Spell.critTalents.crit[2].kind, "damage")
+    -- a druid heals by Nature: 30% - Healing Touch 2 sec, 100 x 1.15 ... with no talents
+    state.talents = {}
+    ns.Spell.ForgetTalents()
+    state.units.player = { name = "You", player = true, class = "DRUID" }
+    state.spellDescriptions[5185] = "Heals a friendly target for 100."
+    state.spellCosts[5185] = 25
+    state.castTimes[5185] = 2000
+    GameTooltip.__lines = nil
+    Mock.showSpellTooltip(5185)
+    check(textsOf():find("Heal per second: 57.5 |", 1, true), textsOf())
+    -- /ftt lines hps off
+    SlashCmdList.AKFOREVERTOOLTIP("lines hps off")
+    GameTooltip.__lines = nil
+    Mock.showSpellTooltip(5185)
+    check(textsOf():find("Heal per mana", 1, true) and not textsOf():find("Heal per second", 1, true), textsOf())
+    SlashCmdList.AKFOREVERTOOLTIP("lines hps on")
+    equal(#Mock.errors, 0, Mock.errors[1])
+end)
+
+scenario("a drain is damage: health taken from the target (Drain Life), over its channel's length; health given (Health Funnel) is not", function()
+    local ns, state = start()
+    state.spellCrit = { [6] = 10, [2] = 50 }
+    local drain = "Transfers 10 health every 1 sec from the target to the caster. Lasts 5 sec."
+    local amounts = ns.Spell.Amounts(drain)
+    equal(amounts and amounts.damage, 50, "5 ticks of 10")
+    equal(amounts.heal, nil, "the caster's health is no heal line")
+    equal(amounts.detail.damage.overTime, 50, "over time")
+    equal(ns.Spell.Amounts("Transfers 15 health every second from the target to the caster for 5 sec.").damage, 75)
+    equal(ns.Spell.Amounts("Drains 20 health from the target every 3 sec. Lasts 15 sec.").damage, 100)
+    equal(ns.Spell.Amounts("Gives 12 health to the caster's pet every second for 10 sec as long as the caster channels."), nil, "Health Funnel")
+    equal(ns.Spell.Amounts("Totem with 5 health that heals party members."), nil)
+    equal(ns.Spell.Amounts("Heals the caster by draining 8 health from the target every 1 sec. Lasts 5 sec.").damage, 40, "a drain that heals you is still damage")
+    equal(ns.Spell.SchoolOf(drain), "shadow")
+    state.spellDescriptions[689] = drain
+    state.spellCosts = { [689] = 55 }
+    state.castTimes = { [689] = 0 }
+    Mock.showSpellTooltip(689, nil, { { leftText = "Drain Life" }, { leftText = "55 Mana" }, { leftText = "Channeled" }, { leftText = drain } })
+    -- 50 x (1 + 0.1 x 0.5) = 52.5 over the 5 sec channel; Shadow's 10%, not Holy's 50%
+    check(textsOf():find("Damage per second: 10.5 |", 1, true), textsOf())
+    check(textsOf():find("Damage per mana", 1, true), textsOf())
+    equal(#Mock.errors, 0, Mock.errors[1])
 end)
 
 scenario("the efficiency lines on a spell tooltip: cost from the client (else the tooltip's '35 Mana'), words from the description (else the tooltip's lines); no mana or no amount, no line; switched off by /ftt lines efficiency off", function()
@@ -601,6 +824,7 @@ scenario("the efficiency lines on a spell tooltip: cost from the client (else th
     Mock.showSpellTooltip(116)
     check(textsOf():find("Damage per mana: 0.84  (21 / 25 mana)", 1, true), textsOf())
     check(textsOf():find("spell 116", 1, true), "the id line still comes")
+    check(not textsOf():find("Damage per second", 1, true), "no cast time known: no per second line - never a guess")
 
     -- a heal
     state.spellDescriptions[2050] = "Heal your target for 47 to 58."
@@ -713,19 +937,21 @@ scenario("the efficiency lines on a spell tooltip: cost from the client (else th
     equal(ns.Spell.stats.lines >= 4, true)
 end)
 
-scenario("under the per-mana line, a row for a normal hit and a row for a crit (x1.5 on the direct part; what lands over time never crits); /ftt lines hits off drops the rows", function()
+scenario("under the per-mana line, a row for a normal hit and a row for a crit (x1.5; what lands over time crits too); /ftt lines hits off drops the rows", function()
     local ns, state = start()
     local R = function(text, kind)
-        return table.concat(ns.Spell.Rows(ns.Spell.Amounts(text).detail[kind or "damage"]), " | ")
+        local d = ns.Spell.Amounts(text).detail[kind or "damage"]
+        d.critOver = 1.5 -- over time crits, damage and heal (Lines sets it so)
+        return table.concat(ns.Spell.Rows(d), " | ")
     end
     equal(R("causing 20 to 22 Frost damage and slowing movement speed by 40% for 5 sec."), "  Hit: 20 to 22 |   Crit: 30 to 33")
-    equal(R("Hurls a fiery ball that causes 14 to 22 Fire damage and an additional 2 Fire damage over 4 sec."), "  Hit: 14 to 22 + 2 over time |   Crit: 21 to 33 + 2 over time")
-    equal(R("A word of darkness that causes 30 Shadow damage over 18 sec."), "  Over time: 30 (no crit)")
-    equal(R("Launches Arcane Missiles at the enemy, causing 26 Arcane damage each second for 3 sec."), "  Over time: 78 (no crit)")
+    equal(R("Hurls a fiery ball that causes 14 to 22 Fire damage and an additional 2 Fire damage over 4 sec."), "  Hit: 14 to 22 + 2 over time |   Crit: 21 to 33 + 3 over time")
+    equal(R("A word of darkness that causes 30 Shadow damage over 18 sec."), "  Over time: 30 |   Crit: 45 over time")
+    equal(R("Launches Arcane Missiles at the enemy, causing 26 Arcane damage each second for 3 sec."), "  Over time: 78 |   Crit: 117 over time")
     equal(R("Heal your target for 47 to 58.", "heal"), "  Hit: 47 to 58 |   Crit: 71 to 87")
-    equal(R("Heals the target of 45 damage over 15 sec.", "heal"), "  Over time: 45 (no crit)")
-    equal(R("Heals a friendly target for 93 to 107 and another 98 over 21 sec.", "heal"), "  Hit: 93 to 107 + 98 over time |   Crit: 140 to 161 + 98 over time")
-    equal(R("Burns the enemy for 11 Fire damage and then an additional 20 Fire damage over 15 sec."), "  Hit: 11 + 20 over time |   Crit: 17 + 20 over time")
+    equal(R("Heals the target of 45 damage over 15 sec.", "heal"), "  Over time: 45 |   Crit: 68 over time")
+    equal(R("Heals a friendly target for 93 to 107 and another 98 over 21 sec.", "heal"), "  Hit: 93 to 107 + 98 over time |   Crit: 140 to 161 + 147 over time")
+    equal(R("Burns the enemy for 11 Fire damage and then an additional 20 Fire damage over 15 sec."), "  Hit: 11 + 20 over time |   Crit: 17 + 30 over time")
     -- Lightning Shield: three balls, each strikes once - the total counts all three, the rows one strike
     local shield = "Surrounds the caster with 3 balls of lightning. When a spell, melee or ranged attack hits the caster, the attacker will be struck for 13 Nature damage. This expends one lightning ball. Only one ball will fire every few seconds. Lasts 10 min."
     equal(ns.Spell.Amounts(shield).damage, 39)
@@ -755,7 +981,7 @@ scenario("a #showtooltip macro on a button: its own kind of tooltip - the spell 
     Mock.showMacroTooltip({ action = 1 }, { { leftText = "Flame Shock" } })
     check(textsOf():find("Damage per mana: 0.96  (53 / 55 mana)", 1, true), textsOf())
     equal(ns.Spell.lastMacro.route, "button")
-    check(textsOf():find("Hit: 25 + 28 over time", 1, true) and textsOf():find("Crit: 38 + 28 over time", 1, true), textsOf())
+    check(textsOf():find("Hit: 25 + 28 over time", 1, true) and textsOf():find("Crit: 38 + 42 over time", 1, true), textsOf())
     -- the macro's index: GetMacroSpell names the spell
     state.actions[2] = { "macro", 7 }
     state.macroSpells[7] = 403

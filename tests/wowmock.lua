@@ -489,12 +489,17 @@ function Mock.install(options)
         })
         global("C_Spell", {
             GetSpellDescription = function(spellID) return state.spellDescriptions[spellID] or "" end,
+            GetSpellName = function(spellID) return (state.spellNames or {})[spellID] end,
             RequestLoadSpellData = function(spellID) state.requestedSpells[#state.requestedSpells + 1] = spellID end,
             GetSpellTexture = function(spellID) return state.spellTextures[spellID] end,
             -- [spellID] = name; by id or by name, as the client answers
             GetSpellInfo = function(which)
                 for id, name in pairs(state.spellNames or {}) do
-                    if which == id or which == name then return { spellID = id, name = name } end
+                    if which == id or which == name then return { spellID = id, name = name, castTime = (state.castTimes or {})[id] } end
+                end
+                local castTime = (state.castTimes or {})[which]
+                if castTime ~= nil then
+                    return { spellID = which, castTime = castTime }
                 end
             end,
             -- [spellID] = mana; the client's shape: a list of { type, name, cost }
@@ -513,6 +518,32 @@ function Mock.install(options)
             if a then return a[1], a[2], a[3] end
         end)
         global("GetMacroSpell", function(index) return state.macroSpells[index] end)
+        -- [spellID] = cast time in milliseconds (0 = instant); the player's spell haste in percent
+        global("UnitSpellHaste", function(unit) return state.spellHaste end)
+        -- crit chance in percent: state.spellCrit = a number (every school) or [school index] = number
+        global("GetSpellCritChance", function(school)
+            if type(state.spellCrit) == "table" and state.spellCrit ~= Mock.SECRET then return state.spellCrit[school] end
+            return state.spellCrit
+        end)
+        global("GetCritChance", function() return state.meleeCrit end)
+        -- talents: state.talents = { { rank = 2, text = "...", spell = id }, ... } (node ids 1, 2, ...)
+        state.talents = state.talents or {}
+        global("C_ClassTalents", { GetActiveConfigID = function() return 77 end })
+        global("C_Traits", {
+            GetConfigInfo = function(config) return config == 77 and { treeIDs = { 1117 } } or nil end,
+            GetTreeNodes = function(tree)
+                local ids = {}
+                for i = 1, #state.talents do ids[i] = i end
+                return ids
+            end,
+            GetNodeInfo = function(config, node)
+                local t = state.talents[node]
+                return { ranksPurchased = t and t.rank or 0, activeEntry = { entryID = node } }
+            end,
+            GetTraitDescription = function(entry, rank) return state.talents[entry] and state.talents[entry].text end,
+            GetEntryInfo = function(config, entry) return { definitionID = entry } end,
+            GetDefinitionInfo = function(definition) return { spellID = state.talents[definition] and state.talents[definition].spell } end,
+        })
         -- the character sheet's main-hand swing: { min, max }, or Mock.SECRET
         global("UnitDamage", function(unit)
             local d = state.unitDamage

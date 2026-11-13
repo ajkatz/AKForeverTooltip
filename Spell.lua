@@ -9,7 +9,8 @@
 --     "causing 20 to 22 Frost damage" counts 21, "Heals ... for 47 to 58" counts 52.5, damage or healing
 --     over time counts in full ("and an additional 12 Arcane damage over 9 sec"), "26 Arcane damage each
 --     second for 3 sec" counts 78. A spell that both hurts and heals (Holy Nova) gets both lines.
--- A crit is the direct part times 1.5 (a spell's crit, damage or heal); what lands over time never crits.
+-- A crit is times 1.5 (a spell's crit, damage or heal) - what lands over time crits too on Forever (the
+-- user, 2026-11-13: "dots can crit", "hots do crit") - raised by talents that raise crit size (see EffectiveLine).
 -- What the words leave out stays out: bonus damage and healing from gear, talents, extra targets.
 -- A shield's absorb is not a heal. No mana cost, or no amount in the words: no line - never a guess.
 local _, ns = ...
@@ -119,6 +120,10 @@ local function ticks(after)
         return tonumber(duration)
     end
     local every, rest = string.match(after, "^[^%.]-every (%d+) sec(.*)$")
+    if not every then
+        rest = string.match(after, "^[^%.]-every second(.*)$")
+        every = rest and "1"
+    end
     if every then
         local lasts = string.match(rest, "^[^%d]-for (%d+) sec") or string.match(rest, "^[^%d]-[Ll]asts (%d+) sec")
         if lasts and tonumber(every) > 0 then
@@ -128,6 +133,10 @@ local function ticks(after)
     return 1
 end
 
+-- the words of a spell that takes health from its target
+local DRAIN_WORDS = { "transfer", "drain", "steal", "siphon", "leech", "from the target", "from your target", "from an enemy" }
+Spell.DRAIN_WORDS = DRAIN_WORDS
+
 -- The damage and the healing the spell's words promise: { damage = n, heal = n } (either may be nil), and
 -- in .detail[kind] what one cast lands: { low, high } of the direct part and .overTime.
 -- Each amount is a number or "a to b" (the middle); what kind it is comes from the words around it:
@@ -135,6 +144,10 @@ end
 --     ("Heals the target of 45 damage over 15 sec" is a heal);
 --   * after "for" or "of" in a clause that speaks of healing: a heal ("Heal your target for 47 to 58");
 --   * after "another" or "additional": more of what came before ("... for 93 to 107 and another 98 over 21 sec");
+--   * followed by "health" in a clause that takes it from the target - transfers, drains, steals, siphons,
+--     leeches ("Transfers 10 health every 1 sec from the target to the caster", Drain Life; the user,
+--     2026-11-13: "drain life should have a dps value as well" ... "and spells in that category"): damage.
+--     Health given ("Gives 12 health to the caster's pet", Health Funnel) is not;
 --   * anything else is not an amount: yards, seconds, percentages, ranks, levels.
 -- An amount followed by "over N sec", or landing in ticks, is over time. A clause that speaks of
 -- absorbing counts nothing.
@@ -163,12 +176,24 @@ function Spell.Amounts(text)
         local afterLower = string.lower(after)
         local kind
         local damageWords = string.match(afterLower, "^%s+%a+%s+damage") or string.match(afterLower, "^%s+damage")
+        local drained = false
+        if not damageWords and string.match(afterLower, "^%s+health") then
+            local clause = before .. (string.match(afterLower, "^[^%.]*") or "")
+            for _, word in ipairs(DRAIN_WORDS) do
+                if string.find(clause, word, 1, true) then
+                    drained = true
+                end
+            end
+            if drained then
+                damageWords = string.match(afterLower, "^%s+health")
+            end
+        end
         -- "heal", "heals", "healing" - but not "health" (a totem "with 5 health", 2026-11-07)
         local healClause = string.find((string.gsub(before, "health", "")), "heal", 1, true)
         if string.find(before, "absorb", 1, true) then
             kind = nil
         elseif damageWords then
-            kind = healClause and "heal" or "damage"
+            kind = (healClause and not drained) and "heal" or "damage"
         elseif healClause and (string.match(before, "for%s*$") or string.match(before, "of%s*$")) then
             kind = "heal"
         elseif previous and (string.match(before, "another%s*$") or string.match(before, "additional%s*$")) then
@@ -213,7 +238,7 @@ function Spell.Amounts(text)
 end
 
 local function format(value)
-    if value >= 100 or value == math.floor(value) then
+    if value >= 100 or math.abs(value - math.floor(value + 0.5)) < 0.05 then -- 24.0000001 is 24
         return string.format("%d", math.floor(value + 0.5))
     end
     return string.format("%.1f", value)
@@ -230,16 +255,21 @@ local function span(low, high)
     return whole(low) .. " to " .. whole(high)
 end
 
--- the hit and crit rows of one kind: "  Hit: 20 to 22", "  Crit: 30 to 33" (+ what lands over time);
--- over time only: one row, it cannot crit
+-- the hit and crit rows of one kind: "  Hit: 20 to 22", "  Crit: 30 to 33" (+ what lands over time).
+-- d.critOver set (the user, 2026-11-13: "dots can crit", "hots do crit"): what lands over time crits by it
+-- too; unset (Rows asked on its own): it does not, and over time alone is one row
 function Spell.Rows(d)
     local over = d.overTime > 0 and (" + " .. whole(d.overTime) .. " over time") or ""
+    local overCrit = d.overTime > 0 and d.critOver and (" + " .. whole(d.overTime * d.critOver) .. " over time") or over
     if d.high <= 0 then
+        if d.critOver then
+            return { "  Over time: " .. whole(d.overTime), "  Crit: " .. whole(d.overTime * d.critOver) .. " over time" }
+        end
         return { "  Over time: " .. whole(d.overTime) .. " (no crit)" }
     end
     local crit = d.crit or CRIT
     local each = d.charges and string.format(" each, %d charges", d.charges) or ""
-    return { "  Hit: " .. span(d.low, d.high) .. over .. each, "  Crit: " .. span(d.low * crit, d.high * crit) .. over .. each }
+    return { "  Hit: " .. span(d.low, d.high) .. over .. each, "  Crit: " .. span(d.low * crit, d.high * crit) .. overCrit .. each }
 end
 
 -- A STRIKE OFF YOUR WEAPON: "Instantly strike for 150% weapon damage" (Forever's Stormstrike, 2026-11-07)
@@ -261,7 +291,7 @@ function Spell.WeaponStrike(text, totals)
     totals = totals or { detail = {} }
     totals.detail = totals.detail or {}
     local d = totals.detail.damage or { low = 0, high = 0, overTime = 0 }
-    d.low, d.high, d.crit = d.low + low, d.high + high, MELEE_CRIT
+    d.low, d.high, d.crit, d.melee = d.low + low, d.high + high, MELEE_CRIT, true
     totals.detail.damage = d
     totals.damage = (totals.damage or 0) + (low + high) / 2
     return totals
@@ -325,6 +355,317 @@ function Spell.AutoLines(kind)
     return out
 end
 
+-- Damage per second (the user, 2026-11-13: "damage / seconds = damage / seconds cast so a 3s shadow bolt is
+-- 3s cast, an instant is 1.5s * haste (GCD)"). The whole cast's damage - over time included, as the per
+-- mana line counts it - over the seconds the cast takes you:
+--   * a channel ("Channeled" on the tooltip): the seconds its words give ("each second for 3 sec");
+--   * a cast time from C_Spell.GetSpellInfo (milliseconds, your haste already in it), else the
+--     tooltip's "3 sec cast";
+--   * an instant: the global cooldown, 1.5 sec shortened by your spell haste (UnitSpellHaste, a percent),
+--     never below 1 sec.
+local GCD, GCD_FLOOR = 1.5, 1.0
+
+local function seconds(value)
+    if value == math.floor(value) then
+        return string.format("%d", value)
+    end
+    return (string.gsub(string.format("%.2f", value), "0$", ""))
+end
+
+local function hasteFactor()
+    local haste = ns.Readable(_G.UnitSpellHaste, "player")
+    haste = haste and haste[1]
+    if type(haste) ~= "number" or haste <= -100 then
+        return 1
+    end
+    return 1 + haste / 100
+end
+
+-- the seconds one cast takes and what they are ("cast", "channel", "GCD"), or nil
+function Spell.CastSeconds(id, lines, text)
+    local texts = textsOf(lines)
+    for _, t in ipairs(texts) do
+        if t == "Channeled" or t == "Channeled (Interruptible)" then
+            local duration = text and (string.match(text, "for (%d+%.?%d*) sec") or string.match(text, "over (%d+%.?%d*) sec")
+                or string.match(text, "[Ll]asts (%d+%.?%d*) sec"))
+            duration = tonumber(duration)
+            return duration and duration > 0 and duration or nil, "channel"
+        end
+    end
+    local info = type(C_Spell) == "table" and type(C_Spell.GetSpellInfo) == "function" and ns.Readable(C_Spell.GetSpellInfo, id)
+    info = info and info[1]
+    local castTime = type(info) == "table" and info.castTime
+    if type(castTime) == "number" and castTime > 0 then
+        return castTime / 1000, "cast"
+    end
+    local instant = type(castTime) == "number" and castTime == 0
+    for _, t in ipairs(texts) do
+        local cast = tonumber(string.match(t, "^%s*(%d+%.?%d*) sec cast"))
+        if cast and cast > 0 then
+            return cast, "cast"
+        end
+        if t == "Instant" or t == "Instant cast" then
+            instant = true
+        end
+    end
+    if instant then
+        return math.max(GCD / hasteFactor(), GCD_FLOOR), "GCD"
+    end
+    return nil
+end
+
+-- EFFECTIVE damage per second (the user, 2026-11-13: "i want the dps to be the EFFECTIVE dps so also take in
+-- crit rate and for dots keep in mind that dots can crit and for warlocks they can get a talent that
+-- increases crit damage on dots and regular spells and other classes as well"):
+--   damage = direct x (1 + chance x (size - 1)) + over time x (1 + chance x (overSize - 1))
+-- chance = GetSpellCritChance(school) (a percent; the school from the words: "13 to 18 Shadow damage"),
+-- GetCritChance for a strike off the weapon; unreadable: no crit counted, and the line says so.
+-- size = x1.5 for a spell (x2 for the weapon), its bonus raised by YOUR talents whose words say they raise
+-- critical strike damage ("Increases the critical strike damage bonus of your Destruction spells by
+-- 100%" = x2): read from your own talent tree (C_Traits, the active config), so a talent new to Forever
+-- counts by its own words. A talent that names a school counts for that school's spells, one that speaks
+-- of periodic damage / damage over time for the part over time only, one that names a tree for that
+-- tree's spells (TREE_SPELLS), one that names spells for those. A talent whose scope cannot be read is
+-- not counted - never a guess - and goes to the report (/ftt diag: spell.critTalents).
+local SCHOOLS = { physical = 1, holy = 2, fire = 3, nature = 4, frost = 5, shadow = 6, arcane = 7 }
+local TREE_SPELLS = {
+    destruction = { "Shadow Bolt", "Immolate", "Searing Pain", "Soul Fire", "Conflagrate", "Shadowburn", "Hellfire", "Rain of Fire", "Incinerate", "Shadowfury" },
+    affliction = { "Corruption", "Curse of Agony", "Curse of Doom", "Siphon Life", "Drain Life", "Drain Soul", "Unstable Affliction", "Death Coil", "Seed of Corruption" },
+    elemental = { "Lightning Bolt", "Chain Lightning", "Earth Shock", "Flame Shock", "Frost Shock", "Lava Burst" },
+    balance = { "Wrath", "Starfire", "Moonfire", "Insect Swarm", "Hurricane", "Starsurge" },
+}
+local OTHER_TREES = { "arms", "fury", "protection", "retribution", "beast mastery", "marksmanship", "survival", "assassination",
+    "combat", "subtlety", "discipline", "enhancement", "restoration", "demonology", "feral" }
+
+function Spell.SchoolOf(text)
+    if type(text) ~= "string" then
+        return nil
+    end
+    local lower = string.lower(text)
+    for word in string.gmatch(lower, "(%a+) damage") do
+        if SCHOOLS[word] then
+            return word
+        end
+    end
+    if string.find(lower, "health", 1, true) then
+        for _, word in ipairs(DRAIN_WORDS) do
+            if string.find(lower, word, 1, true) then
+                return "shadow" -- a drain names no school: they are Shadow
+            end
+        end
+    end
+    return nil
+end
+
+-- one talent's words -> what it raises, or nil (no crit damage in them); { percent, schools, periodic, spells, unread }
+function Spell.ParseCritTalent(text)
+    if type(text) ~= "string" then
+        return nil
+    end
+    for sentence in string.gmatch(text .. ".", "([^%.]+)%.") do
+        local lower = string.lower(sentence)
+        local heals = string.find(lower, "heal", 1, true) ~= nil
+        local size = string.find(lower, "critical strike damage", 1, true) or string.find(lower, "critical damage", 1, true)
+            or string.find(lower, "critical strike bonus", 1, true)
+            or (heals and string.find(lower, "critical", 1, true) and string.find(lower, "bonus", 1, true))
+        if size and not string.find(lower, "chance", 1, true) then
+            local percent = tonumber(string.match(lower, "(%d+)%%"))
+            if percent then
+                local t = { percent = percent, schools = {}, spells = {}, text = sentence, kind = heals and "heal" or "damage" }
+                for school in pairs(SCHOOLS) do
+                    if string.find(lower, school, 1, true) then
+                        t.schools[school] = true
+                    end
+                end
+                t.periodic = (string.find(lower, "periodic", 1, true) or string.find(lower, "over time", 1, true)) and true or false
+                local named = false
+                for tree, list in pairs(TREE_SPELLS) do
+                    if string.find(lower, tree, 1, true) then
+                        named = true
+                        for _, name in ipairs(list) do t.spells[name] = true end
+                    end
+                end
+                for _, tree in ipairs(OTHER_TREES) do
+                    if string.find(lower, tree, 1, true) then
+                        t.unread = "names the " .. tree .. " tree"
+                    end
+                end
+                -- melee and ranged attacks are not spells
+                if (string.find(lower, "melee", 1, true) or string.find(lower, "ranged", 1, true) or string.find(lower, "attacks", 1, true))
+                    and not string.find(lower, "spell", 1, true) then
+                    t.unread = "melee or ranged"
+                end
+                t.named = named
+                return t
+            end
+        end
+    end
+    return nil
+end
+
+-- the talents you have that raise crit damage (cached until the talents change); the report keeps them all
+Spell.critTalents = { read = false }
+local talentCache
+
+local function field(value)
+    return readable(value) and value or nil
+end
+
+local function readTalents()
+    local found = {}
+    local report = { read = false, talents = 0, crit = {} }
+    Spell.critTalents = report
+    if type(C_ClassTalents) ~= "table" or type(C_Traits) ~= "table" then
+        report.why = "no talent API"
+        return found
+    end
+    local config = ns.Readable(C_ClassTalents.GetActiveConfigID)
+    config = config and field(config[1])
+    local info = config and ns.Readable(C_Traits.GetConfigInfo, config)
+    info = info and info[1]
+    local tree = type(info) == "table" and type(info.treeIDs) == "table" and field(info.treeIDs[1])
+    local nodes = tree and ns.Readable(C_Traits.GetTreeNodes, tree)
+    nodes = nodes and nodes[1]
+    if type(nodes) ~= "table" then
+        report.why = "no talent tree"
+        return found
+    end
+    report.read = true
+    for _, nodeID in ipairs(nodes) do
+        local node = ns.Readable(C_Traits.GetNodeInfo, config, nodeID)
+        node = node and node[1]
+        local rank = type(node) == "table" and (field(node.ranksPurchased) or field(node.activeRank)) or 0
+        if type(rank) == "number" and rank > 0 then
+            report.talents = report.talents + 1
+            local entry = (type(node.activeEntry) == "table" and field(node.activeEntry.entryID))
+                or (type(node.entryIDs) == "table" and field(node.entryIDs[1]))
+            local text = entry and ns.Readable(C_Traits.GetTraitDescription, entry, rank)
+            text = text and field(text[1])
+            local parsed = Spell.ParseCritTalent(text)
+            if parsed then
+                local name
+                local entryInfo = type(C_Traits.GetEntryInfo) == "function" and ns.Readable(C_Traits.GetEntryInfo, config, entry)
+                entryInfo = entryInfo and entryInfo[1]
+                local definition = type(entryInfo) == "table" and field(entryInfo.definitionID)
+                definition = definition and type(C_Traits.GetDefinitionInfo) == "function" and ns.Readable(C_Traits.GetDefinitionInfo, definition)
+                definition = definition and definition[1]
+                local spellID = type(definition) == "table" and field(definition.spellID)
+                name = spellID and spellInfoName(spellID)
+                parsed.name = name or ("talent " .. tostring(nodeID))
+                parsed.rank = rank
+                report.crit[#report.crit + 1] = { name = parsed.name, rank = rank, percent = parsed.percent, kind = parsed.kind, text = parsed.text, unread = parsed.unread }
+                if not parsed.unread then
+                    found[#found + 1] = parsed
+                end
+            end
+        end
+    end
+    return found
+end
+
+function Spell.CritTalents()
+    if not talentCache then
+        talentCache = readTalents()
+    end
+    return talentCache
+end
+
+function Spell.ForgetTalents()
+    talentCache = nil
+end
+
+for _, event in ipairs({ "TRAIT_CONFIG_UPDATED", "PLAYER_TALENT_UPDATE", "ACTIVE_PLAYER_SPECIALIZATION_CHANGED", "TRAIT_NODE_CHANGED", "PLAYER_ENTERING_WORLD" }) do
+    ns:On(event, Spell.ForgetTalents)
+end
+
+-- does a talent count for this spell's part ("direct" or "over")?
+local function counts(t, spellName, school, part)
+    if t.periodic and part ~= "over" then
+        return false
+    end
+    if t.named then
+        return spellName ~= nil and t.spells[spellName] == true
+    end
+    if next(t.schools) then
+        return school ~= nil and t.schools[school] == true
+    end
+    return true -- "your spells"
+end
+
+-- the crit sizes of a spell's two parts and the talents counted: direct, over, names
+function Spell.CritSizes(spellName, school, kind)
+    local direct, over, names = 0, 0, { direct = {}, over = {} }
+    for _, t in ipairs(Spell.CritTalents()) do
+        local mine = t.kind == (kind or "damage")
+        local d, o = mine and counts(t, spellName, school, "direct"), mine and counts(t, spellName, school, "over")
+        if d then direct = direct + t.percent / 100; table.insert(names.direct, t.name) end
+        if o then over = over + t.percent / 100; table.insert(names.over, t.name) end
+    end
+    local bonus = CRIT - 1
+    return 1 + bonus * (1 + direct), 1 + bonus * (1 + over), names
+end
+
+-- a heal's school, its words naming none: Holy for a priest or paladin, Nature for a druid or shaman
+local HEAL_SCHOOL = { PRIEST = "holy", PALADIN = "holy", DRUID = "nature", SHAMAN = "nature" }
+
+function Spell.HealSchool()
+    local class = ns.Readable(_G.UnitClass, "player")
+    class = class and class[2]
+    return HEAL_SCHOOL[class] or "holy"
+end
+
+-- the crit chance (0 to 1) for a school, or nil when the client does not say
+function Spell.CritChance(school, melee)
+    local answer
+    if melee then
+        answer = ns.Readable(_G.GetCritChance)
+    else
+        answer = ns.Readable(_G.GetSpellCritChance, SCHOOLS[school or ""] or 2)
+    end
+    local percent = answer and answer[1]
+    if type(percent) ~= "number" or percent < 0 then
+        return nil
+    end
+    return math.min(percent, 100) / 100
+end
+
+-- the line: "Damage per second: 5.7", "Heal per second: 22.4" (what went into it: /ftt diag). Heals the same
+-- way (the user, 2026-11-13: "do healing spells also have the same thing" ... "hots do crit").
+local PER_SECOND = { damage = "Damage per second", heal = "Heal per second" }
+
+function Spell.EffectiveLine(id, lines, text, totals, kind)
+    kind = kind or "damage"
+    local d = totals.detail and totals.detail[kind]
+    if not d then
+        return nil
+    end
+    local castSeconds, what = Spell.CastSeconds(id, lines, text)
+    if not castSeconds then
+        return nil
+    end
+    local charges = d.charges or 1
+    local overTotal = d.overTime * charges
+    local directTotal = totals[kind] - overTotal
+    local school = kind == "heal" and Spell.HealSchool() or Spell.SchoolOf(text)
+    local chance = Spell.CritChance(school, d.melee)
+    local name = spellInfoName(id) or textsOf(lines)[1]
+    local directSize, overSize
+    if d.melee then
+        directSize, overSize = d.crit or MELEE_CRIT, CRIT
+    else
+        directSize, overSize = Spell.CritSizes(name, school, kind)
+    end
+    local amount = totals[kind] -- the crit chance unreadable: the plain amount
+    if chance then
+        amount = directTotal * (1 + chance * (directSize - 1)) + overTotal * (1 + chance * (overSize - 1))
+    else
+        Spell.stats.dpsNoCrit = (Spell.stats.dpsNoCrit or 0) + 1
+    end
+    Spell.stats.dps = (Spell.stats.dps or 0) + 1
+    -- the user, 2026-11-13: "display it more as damage / cast time and then get rid of all of the text at the end"
+    return string.format("%s: %.1f", PER_SECOND[kind], amount / castSeconds), directSize, overSize
+end
+
 -- the lines for one spell: { { text, r, g, b }, ... } or nil
 function Spell.Lines(id, lines)
     local auto = autoKind(id, lines)
@@ -374,6 +715,25 @@ function Spell.Lines(id, lines)
         if amount and amount > 0 then
             local c = COLOR[kind]
             out[#out + 1] = { string.format("%s: %.2f  (%s / %s mana)", LABEL[kind], amount / cost, format(amount), format(cost)), c[1], c[2], c[3] }
+            do
+                local d = totals.detail[kind]
+                local line, directSize, overSize
+                if ns:GetOption(kind == "heal" and "hps" or "dps") ~= false then
+                    line, directSize, overSize = Spell.EffectiveLine(id, lines, text, totals, kind)
+                    if line then
+                        out[#out + 1] = { line, c[1], c[2], c[3] }
+                    end
+                end
+                -- the crit row by the same sizes: talents counted, and what lands over time crits too
+                if not directSize and not d.melee then
+                    directSize, overSize = Spell.CritSizes(spellInfoName(id) or textsOf(lines)[1],
+                        kind == "heal" and Spell.HealSchool() or Spell.SchoolOf(text), kind)
+                end
+                if not d.melee then
+                    d.crit = directSize
+                end
+                d.critOver = overSize or CRIT
+            end
             if ns:GetOption("hitRows") ~= false then
                 for _, row in ipairs(Spell.Rows(totals.detail[kind])) do
                     out[#out + 1] = { row, COLOR.rows[1], COLOR.rows[2], COLOR.rows[3] }

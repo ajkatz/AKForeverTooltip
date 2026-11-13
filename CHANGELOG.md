@@ -1,5 +1,23 @@
 # AKForeverTooltip
 
+## 0.2.5 (unreleased)
+
+- Drains count as damage: Drain Life and other spells that transfer, drain, steal, siphon or leech health from the target get Damage per mana and Damage per second, over the channel's "Lasts N sec". They crit as Shadow.
+
+- **Effective damage per second on spells.** Under the per mana line: "Damage per second: 5.7" - the
+  cast's damage with your crits in it, over the seconds the cast takes you:
+  its cast time (your haste is in it), a channel's length, or for an instant the global cooldown (1.5 sec
+  shortened by your spell haste, never below 1 sec). Crit chance is the game's for the spell's school; a crit
+  is x1.5, and damage over time crits too. Talents that raise crit damage are read from your own talent
+  tree by their words - a school's spells, a tree's (Destruction, Affliction, Elemental, Balance), periodic
+  damage only, or all spells; one whose reach cannot be read is not counted. `/ftt diag` lists the talents
+  it read. `/ftt lines dps off` drops the line.
+- **Heal per second**, the same way: "Heal per second: 36.8" under the heal per mana line - heals over time
+  crit too, the crit chance is your class's healing school's (Holy for a priest or paladin, Nature for a
+  druid or shaman), and talents that raise the crit bonus of heals count. `/ftt lines hps off` drops it.
+- **The crit row counts the same way**: what lands over time crits ("Crit: 21 to 33 + 3 over time"), and a
+  talent that raises crit size raises the row.
+
 ## 0.2.4
 
 - **Damage and healing per mana on spells.** A spell's tooltip says what it does for its mana - "Damage per

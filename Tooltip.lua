@@ -843,9 +843,10 @@ end)
 -- whether it is there at all.
 local LINES = { health = "the hp / power lines", targetofttarget = false,
     targetoftarget = "who they are hitting", range = "roughly how far away", petmood = "your pet's mood",
-    ids = "the spell or item id", camp = "a camp object's buff", efficiency = "damage / heal per mana", hits = "hit and crit rows" }
+    ids = "the spell or item id", camp = "a camp object's buff", efficiency = "damage / heal per mana", hits = "hit and crit rows",
+    dps = "damage per second", hps = "heal per second" }
 local LINE_OPTIONS = { health = "health", targetoftarget = "targetOfTarget", range = "range",
-    petmood = "petMood", ids = "ids", camp = "camp", efficiency = "efficiency", hits = "hitRows" }
+    petmood = "petMood", ids = "ids", camp = "camp", efficiency = "efficiency", hits = "hitRows", dps = "dps", hps = "hps" }
 
 ns:RegisterCommand("lines", "which extra lines to show: /ftt lines range off, /ftt lines ids on, or /ftt lines to list them", function(rest)
     local which, value = string.match(rest or "", "^%s*(%S*)%s*(%S*)%s*$")
