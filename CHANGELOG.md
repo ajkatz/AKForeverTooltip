@@ -1,8 +1,8 @@
 # AKForeverTooltip
 
-## 0.2.5 (unreleased)
+## 0.2.5
 
-- Drains count as damage: Drain Life and other spells that transfer, drain, steal, siphon or leech health from the target get Damage per mana and Damage per second, over the channel's "Lasts N sec". They crit as Shadow.
+- **Drains count as damage.** Drain Life and other spells that transfer, drain, steal, siphon or leech health from the target get Damage per mana and Damage per second, over the channel's "Lasts N sec". They crit as Shadow.
 
 - **Effective damage per second on spells.** Under the per mana line: "Damage per second: 5.7" - the
   cast's damage with your crits in it, over the seconds the cast takes you:
