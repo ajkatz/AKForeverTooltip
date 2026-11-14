@@ -1,6 +1,6 @@
 # AKForeverTooltip
 
-## Unreleased
+## 0.2.6
 
 - **How many you have, on every character.** An item's tooltip lists each of your characters on the realm
   that has it - "Purrdee: 67  (bags 25, bank 42)" in its class colour, the one you are on first - then the
