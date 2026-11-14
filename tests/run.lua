@@ -817,6 +817,101 @@ scenario("a drain is damage: health taken from the target (Drain Life), over its
     equal(#Mock.errors, 0, Mock.errors[1])
 end)
 
+scenario("item counts: how many of an item each of your characters on the realm has, in bags and bank - the bank read while it is open, the account bank once", function()
+    local LINEN, WOOL, ORE = 2589, 2592, 2770
+    -- an alt saved earlier (another login): 7 linen in its bank, 3 in its bags; and one on another realm
+    local db = { chars = {
+        ["Bubson - TestRealm"] = { options = {}, counts = { class = "ROGUE", bags = { [LINEN] = 3 }, bank = { [LINEN] = 7, [ORE] = 2 } } },
+        ["Farrealm - OtherRealm"] = { options = {}, counts = { class = "MAGE", bags = { [LINEN] = 99 } } },
+    } }
+    local ns, state = start({ db = db, containers = {
+        [0] = { { LINEN, 20 }, false, { LINEN, 5 } }, -- the backpack: two stacks
+        [5] = { { WOOL, 4 } },                          -- the reagent bag counts too
+    } })
+    state.units.player = { name = "Purrdee", player = true, class = "SHAMAN" }
+    Mock.fire("BAG_UPDATE_DELAYED")
+    equal(ns.cdb.counts.bags[LINEN], 25, "both stacks")
+    equal(ns.cdb.counts.bags[WOOL], 4, "the reagent bag")
+    equal(ns.cdb.counts.class, "SHAMAN")
+
+    Mock.showItemTooltip(LINEN)
+    check(textsOf():find("Purrdee: 25  (bags) |", 1, true), textsOf())
+    check(textsOf():find("Bubson: 10  (bags 3, bank 7)", 1, true), textsOf())
+    check(textsOf():find("Total: 35", 1, true), textsOf())
+    check(not textsOf():find("Farrealm", 1, true), "another realm is left out: " .. textsOf())
+    -- the one you are on first, in its class colour
+    local first
+    for _, line in ipairs(GameTooltip.__lines) do
+        if tostring(line.text):find("Purrdee:", 1, true) then first = first or line end
+        if tostring(line.text):find("Bubson:", 1, true) and not first then first = line end
+    end
+    equal(first.text, "Purrdee: 25  (bags)")
+    equal(string.format("%.2f %.2f %.2f", first.r, first.g, first.b), "0.00 0.44 0.87", "shaman blue")
+
+    -- one holder: no total line; nobody: no lines at all
+    GameTooltip.__lines = nil
+    Mock.showItemTooltip(WOOL)
+    check(textsOf():find("Purrdee: 4  (bags)", 1, true) and not textsOf():find("Total", 1, true), textsOf())
+    GameTooltip.__lines = nil
+    Mock.showItemTooltip(4306)
+    check(not textsOf():find("bags", 1, true), textsOf())
+
+    -- the bank: not read while closed ...
+    state.bankTabs = { Character = { 6, 7 }, Account = { 12 } }
+    state.containers[6] = { { LINEN, 40 } }
+    state.containers[7] = { { ORE, 10 }, { LINEN, 2 } }
+    state.containers[12] = { { LINEN, 100 } }
+    Mock.fire("BAG_UPDATE_DELAYED")
+    equal(ns.cdb.counts.bank, nil, "the bank is only read at the bank")
+    -- ... read when it opens (Forever: the interaction manager), its tabs; the account bank account-wide
+    Mock.fire("PLAYER_INTERACTION_MANAGER_FRAME_SHOW", 8)
+    equal(ns.cdb.counts.bank[LINEN], 42); equal(ns.cdb.counts.bank[ORE], 10)
+    equal(ns.db.accountBank.items[LINEN], 100)
+    GameTooltip.__lines = nil
+    Mock.showItemTooltip(LINEN)
+    check(textsOf():find("Purrdee: 67  (bags 25, bank 42)", 1, true), textsOf())
+    check(textsOf():find("Account bank: 100", 1, true), textsOf())
+    check(textsOf():find("Total: 177", 1, true), textsOf())
+    -- a change in the bank while it is open; then closed: no more reads
+    state.containers[6] = { { LINEN, 1 } }
+    Mock.fire("PLAYERBANKSLOTS_CHANGED")
+    equal(ns.cdb.counts.bank[LINEN], 3)
+    Mock.fire("PLAYER_INTERACTION_MANAGER_FRAME_HIDE", 8)
+    state.containers[6] = {}
+    Mock.fire("BAG_UPDATE_DELAYED")
+    equal(ns.cdb.counts.bank[LINEN], 3, "closed: the bank as last seen")
+
+    -- the client will not say (a secret): the saved counts stay - never a wrong number
+    state.containers[0] = { Mock.SECRET }
+    Mock.fire("BAG_UPDATE_DELAYED")
+    equal(ns.cdb.counts.bags[LINEN], 25, "kept")
+    equal(ns.Counts.stats.keptOld > 0, true)
+    state.containers[0] = { { LINEN, 1 }, "hidden" }
+    Mock.fire("BAG_UPDATE_DELAYED")
+    equal(ns.cdb.counts.bags[LINEN], 25, "kept: a slot's whole answer secret")
+    state.containers[0] = Mock.SECRET
+    Mock.fire("BAG_UPDATE_DELAYED")
+    equal(ns.cdb.counts.bags[LINEN], 25, "kept")
+
+    -- /ftt lines counts off
+    SlashCmdList.AKFOREVERTOOLTIP("lines counts off")
+    GameTooltip.__lines = nil
+    Mock.showItemTooltip(LINEN)
+    check(not textsOf():find("Total", 1, true), textsOf())
+    SlashCmdList.AKFOREVERTOOLTIP("lines counts on")
+    equal(#Mock.errors, 0, Mock.errors[1])
+end)
+
+scenario("item counts on an older client's bank: the bank container and its bags, when there are no bank tabs", function()
+    local LINEN = 2589
+    local ns, state = start({ bankTabs = false, containers = { [-1] = { { LINEN, 8 } }, [6] = { { LINEN, 2 } } } })
+    state.units.player = { name = "Purrdee", player = true, class = "SHAMAN" }
+    Mock.fire("BANKFRAME_OPENED")
+    equal(ns.cdb.counts.bank[LINEN], 10)
+    equal(ns.db.accountBank, nil)
+    equal(#Mock.errors, 0, Mock.errors[1])
+end)
+
 scenario("the efficiency lines on a spell tooltip: cost from the client (else the tooltip's '35 Mana'), words from the description (else the tooltip's lines); no mana or no amount, no line; switched off by /ftt lines efficiency off", function()
     local ns, state = start()
     state.spellDescriptions[116] = "Launches a bolt of frost at the enemy, causing 20 to 22 Frost damage and slowing movement speed by 40% for 5 sec."

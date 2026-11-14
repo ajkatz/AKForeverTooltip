@@ -13,5 +13,6 @@
 Core.lua
 Camp.lua
 Spell.lua
+Counts.lua
 Tooltip.lua
 Diagnostics.lua

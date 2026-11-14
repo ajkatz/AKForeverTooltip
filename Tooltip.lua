@@ -697,6 +697,9 @@ ns:Listen("LOGIN", function()
                     if what == "spell" and ns.Spell then
                         ns.SafeCall(ns.Spell.Add, tooltip, data)
                     end
+                    if what == "item" and ns.Counts then
+                        ns.SafeCall(ns.Counts.Add, tooltip, data)
+                    end
                     ns.SafeCall(addID, tooltip, data, what)
                 end)
                 Tooltip.hooks[what] = true
@@ -844,9 +847,9 @@ end)
 local LINES = { health = "the hp / power lines", targetofttarget = false,
     targetoftarget = "who they are hitting", range = "roughly how far away", petmood = "your pet's mood",
     ids = "the spell or item id", camp = "a camp object's buff", efficiency = "damage / heal per mana", hits = "hit and crit rows",
-    dps = "damage per second", hps = "heal per second" }
+    dps = "damage per second", hps = "heal per second", counts = "how many you have, on every character" }
 local LINE_OPTIONS = { health = "health", targetoftarget = "targetOfTarget", range = "range",
-    petmood = "petMood", ids = "ids", camp = "camp", efficiency = "efficiency", hits = "hitRows", dps = "dps", hps = "hps" }
+    petmood = "petMood", ids = "ids", camp = "camp", efficiency = "efficiency", hits = "hitRows", dps = "dps", hps = "hps", counts = "counts" }
 
 ns:RegisterCommand("lines", "which extra lines to show: /ftt lines range off, /ftt lines ids on, or /ftt lines to list them", function(rest)
     local which, value = string.match(rest or "", "^%s*(%S*)%s*(%S*)%s*$")

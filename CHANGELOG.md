@@ -1,5 +1,12 @@
 # AKForeverTooltip
 
+## Unreleased
+
+- **How many you have, on every character.** An item's tooltip lists each of your characters on the realm
+  that has it - "Purrdee: 67  (bags 25, bank 42)" in its class colour, the one you are on first - then the
+  account bank and a total. Bags (the reagent bag too) are counted as they change; a bank when you open it, so
+  an alt's bank counts once that alt has visited the bank with the addon. `/ftt lines counts off` drops them.
+
 ## 0.2.5
 
 - **Drains count as damage.** Drain Life and other spells that transfer, drain, steal, siphon or leech health from the target get Damage per mana and Damage per second, over the channel's "Lasts N sec". They crit as Shadow.

@@ -462,7 +462,37 @@ function Mock.install(options)
     end
     if not options.noPostCalls then
         local postCalls = {}
-        global("Enum", { TooltipDataType = { Item = 0, Spell = 1, Unit = 2, Object = 4, Macro = 25 } })
+        global("Enum", { TooltipDataType = { Item = 0, Spell = 1, Unit = 2, Object = 4, Macro = 25 },
+            BankType = { Character = 0, Guild = 1, Account = 2 }, PlayerInteractionType = { Banker = 8, MailInfo = 17, AccountBanker = 54 } })
+        -- containers: state.containers[bag] = { { itemID, count } or false (empty), ... } or Mock.SECRET (the
+        -- client will not say); bank tabs: state.bankTabs = { Character = { 6, 7 }, Account = { 12 } }
+        state.containers = options.containers or {}
+        state.bankTabs = options.bankTabs
+        global("NUM_TOTAL_EQUIPPED_BAG_SLOTS", 5)
+        global("C_Container", {
+            GetContainerNumSlots = function(bag)
+                local c = state.containers[bag]
+                if c == Mock.SECRET then return Mock.SECRET end
+                return c and #c or 0
+            end,
+            GetContainerItemInfo = function(bag, slot)
+                local c = state.containers[bag]
+                local item = type(c) == "table" and c[slot]
+                if item == Mock.SECRET then return { itemID = Mock.SECRET, stackCount = Mock.SECRET } end
+                if item == "hidden" then return Mock.SECRET end -- the whole answer a secret
+                if item then return { itemID = item[1], stackCount = item[2] } end
+            end,
+        })
+        if state.bankTabs ~= false then
+            global("C_Bank", {
+                FetchPurchasedBankTabIDs = function(kind)
+                    local tabs = state.bankTabs or {}
+                    if kind == 0 then return tabs.Character or {} end
+                    if kind == 2 then return tabs.Account or {} end
+                    return {}
+                end,
+            })
+        end
         -- the character's level, and the game's highest
         global("UnitLevel", function(unit) return unit == "player" and (state.level or 30) or 0 end)
         global("GetMaxLevelForPlayerExpansion", function() return 60 end)

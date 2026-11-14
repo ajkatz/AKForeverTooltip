@@ -264,6 +264,7 @@ local OPTION_DEFAULTS = {
     hitRows = true,      -- ... and under it a row for a normal hit and a row for a crit
     dps = true,          -- ... and damage per second: the damage over the cast time (an instant: the GCD)
     hps = true,          -- ... and heal per second, the same way
+    counts = true,       -- an item: how many each of your characters has, in bags and bank
     camp = true,         -- on a camp object (Forever's campfire furniture): the buff it brings and the class buff it stands in for
 }
 
