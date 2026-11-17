@@ -1,5 +1,23 @@
 # AKForeverTooltip
 
+## Unreleased
+
+- **Your chance to hit an enemy mob**, on its tooltip: "Hit chance: melee 94.6%, spell 94%" - worked out from
+  the mob's level, yours, your weapon skill and the Hit Chance on your character sheet. You get the kinds your
+  class uses: melee, ranged for a hunter, spells for a caster, melee and spells for a shaman, paladin or
+  druid. With two weapons the swings - which miss 19% more than abilities - stand in brackets: "melee 95%
+  (swings 76%)". A mob up to three levels over you goes by Blizzard's own table; further up the Classic rules
+  stand in and the number carries a "~". A skull counts as a boss (three levels up) at the top level and gets
+  no line below it. Nothing on players, corpses or anything you cannot attack. `/ftt lines hitchance off`
+  drops it; `/ftt diag` keeps what the last line was made of (`hit.last`).
+- **Dodged, parried, blocked.** Under a melee hit chance, what the mob does to a swing that would have hit:
+  "Dodged 6.5%; from the front parried 14%, blocked up to 5%". Dodge goes by Blizzard's own table, parry and
+  block by the Classic rules (a boss parries 14%; both only from the front, and not every mob blocks); your
+  weapon skill and your expertise are counted. `/ftt lines avoidance off` drops it.
+- **Item level on weapons and armor.** "Item level 45" on the tooltip of anything you can wear or wield -
+  the comparison tooltip and chat links included, so two pieces can be told apart at a glance. Nothing on
+  potions, cloth, quest items and the like. `/ftt lines ilvl off` drops it.
+
 ## 0.2.7
 
 - **A macro for a lower rank shows that rank's numbers.** On a `#showtooltip` macro that casts a lower rank

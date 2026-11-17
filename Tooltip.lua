@@ -84,7 +84,7 @@ Tooltip.stats = { anchored = 0, anchorPath = "not used yet", coloured = 0, notPl
     healthRefused = 0,   -- ... and the times that was not allowed. See the note above addHealth.
     healthOfMax = 0,     -- ... secret, beside a maximum that could be read: "900 hp of 1,000"
     healthLabelled = 0,  -- ... secret, and carrying a label but no deficit
-    targetLines = 0, rangeLines = 0, moodLines = 0, idLines = 0, spellRangeLines = 0,
+    targetLines = 0, rangeLines = 0, moodLines = 0, idLines = 0, spellRangeLines = 0, itemLevelLines = 0,
     rangeSkippedInCombat = 0, -- CheckInteractDistance is a blocked action in a fight: not asked there
 }
 Tooltip.samples = {} -- the last few unit tooltips, for /ftt diag
@@ -601,6 +601,9 @@ local function onUnitTooltip(tooltip)
         if ns:GetOption("targetOfTarget") then
             ns.SafeCall(addTargetOfTarget, tooltip, unit)
         end
+        if ns.Hit and ns:GetOption("hitChance") then
+            ns.SafeCall(ns.Hit.AddUnit, tooltip, unit)
+        end
         if ns:GetOption("range") then
             ns.SafeCall(addRange, tooltip, unit)
             ns.SafeCall(addSpellRange, tooltip, unit)
@@ -652,6 +655,59 @@ local function onUnitTooltip(tooltip)
     remember({ unit = unit, result = "coloured", class = class[2] })
 end
 
+-- THE ITEM LEVEL, on a weapon or a piece of armor (the user, 2026-11-17: "for tooltips can we also add
+-- item levels"; his choice: weapons and armor - where the number says something). The client's own
+-- tooltip does not show it. Asked of the very item the tooltip shows where its link is given, else of
+-- the item id; a client that keeps the level for C_Item.GetItemInfo is asked there. Any tooltip that
+-- shows an item gets the line - a comparison tooltip is where two levels are worth seeing side by side.
+local ITEM_LEVEL_COLOR = { 1.00, 0.82, 0.00 }
+local GEAR_CLASSES = { [2] = true, [4] = true } -- Enum.ItemClass.Weapon, Armor
+
+local function levelOf(what)
+    local items = type(C_Item) == "table" and C_Item or nil
+    if not items or what == nil then
+        return nil
+    end
+    local answer = ns.Readable(items.GetDetailedItemLevelInfo, what) -- actual level, preview?, the table's level
+    local level = answer and answer[1]
+    if type(level) == "number" and level > 0 then
+        return level
+    end
+    return nil
+end
+
+local function addItemLevel(tooltip, data)
+    if not ns:GetOption("itemLevel") or type(tooltip) ~= "table" or type(tooltip.AddLine) ~= "function" then
+        return
+    end
+    local id = type(data) == "table" and data.id or nil
+    if ns.IsSecret(id) or type(id) ~= "number" then
+        return
+    end
+    local items = type(C_Item) == "table" and C_Item or nil
+    if not items or type(items.GetItemInfoInstant) ~= "function" then
+        return
+    end
+    -- id, type, subtype, equip location, icon, class, subclass (ns.Readable keeps five answers: not enough)
+    local ok, _, _, _, _, _, class = pcall(items.GetItemInfoInstant, id)
+    if not ok or ns.IsSecret(class) or not GEAR_CLASSES[class] then
+        return
+    end
+    local link = data.hyperlink
+    local level = (not ns.IsSecret(link) and type(link) == "string" and levelOf(link)) or levelOf(id)
+    if not level then
+        local info = ns.Readable(items.GetItemInfo, id) -- name, link, quality, level
+        level = info and info[4]
+        if type(level) ~= "number" or level <= 0 then
+            return
+        end
+    end
+    ns.BeginTrace("item level", tooltip)
+    ns.Step("item level line")
+    tooltip:AddLine("Item level " .. level, ITEM_LEVEL_COLOR[1], ITEM_LEVEL_COLOR[2], ITEM_LEVEL_COLOR[3])
+    Tooltip.stats.itemLevelLines = Tooltip.stats.itemLevelLines + 1
+end
+
 -- THE ID, on a spell or an item. Dull for a player and invaluable for anyone writing a macro or an
 -- addon: half a day went into finding out by hand whether Multi-Shot casts, and the answer began with
 -- knowing its id. Blizzard's tooltip data hands it over directly - no lookup, nothing secret.
@@ -691,6 +747,9 @@ ns:Listen("LOGIN", function()
         for what, kind in pairs({ ["spell"] = kinds.Spell, ["item"] = kinds.Item }) do
             if kind ~= nil then
                 TooltipDataProcessor.AddTooltipPostCall(kind, function(tooltip, data)
+                    if what == "item" then
+                        ns.SafeCall(addItemLevel, tooltip, data)
+                    end
                     if what == "item" and ns.Camp then
                         ns.SafeCall(ns.Camp.Add, tooltip, data)
                     end
@@ -847,9 +906,11 @@ end)
 local LINES = { health = "the hp / power lines", targetofttarget = false,
     targetoftarget = "who they are hitting", range = "roughly how far away", petmood = "your pet's mood",
     ids = "the spell or item id", camp = "a camp object's buff", efficiency = "damage / heal per mana", hits = "hit and crit rows",
-    dps = "damage per second", hps = "heal per second", counts = "how many you have, on every character" }
+    dps = "damage per second", hps = "heal per second", counts = "how many you have, on every character",
+    hitchance = "your chance to hit an enemy mob", ilvl = "the item level of a weapon or armor",
+    avoidance = "your melee dodged, parried, blocked" }
 local LINE_OPTIONS = { health = "health", targetoftarget = "targetOfTarget", range = "range",
-    petmood = "petMood", ids = "ids", camp = "camp", efficiency = "efficiency", hits = "hitRows", dps = "dps", hps = "hps", counts = "counts" }
+    petmood = "petMood", ids = "ids", camp = "camp", efficiency = "efficiency", hits = "hitRows", dps = "dps", hps = "hps", counts = "counts", hitchance = "hitChance", ilvl = "itemLevel", avoidance = "avoidance" }
 
 ns:RegisterCommand("lines", "which extra lines to show: /ftt lines range off, /ftt lines ids on, or /ftt lines to list them", function(rest)
     local which, value = string.match(rest or "", "^%s*(%S*)%s*(%S*)%s*$")

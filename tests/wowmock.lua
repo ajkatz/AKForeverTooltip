@@ -435,6 +435,93 @@ function Mock.install(options)
         end
         return "Class", unit.class, 4
     end)
+
+    -- Hit chance --------------------------------------------------------------
+    -- Who can be attacked, and what the character sheet's Hit Chance row is made of (Camelot's
+    -- PaperDollFrameStats.lua: GetCombatRatingBonus(CR_HIT_x) + Get[Ranged|Spell]HitModifier()), the
+    -- weapon in each slot and the skill with it.
+    --   state.hit      = { rating = { [6] = 1 }, melee = 2, ranged = 0, spell = 3 }; false: a client without the calls
+    --   state.equipped = { [16] = itemID }; state.weapons = { [itemID] = subclass }; state.skills = { [skillID] = { rank, modifier } }
+    state.hit, state.equipped, state.weapons, state.skills = options.hit, {}, {}, {}
+    state.dualWield, state.form = false, 0
+    global("UnitCanAttack", function(_, unitToken)
+        if state.secretAnswers.UnitCanAttack then
+            return Mock.SECRET
+        end
+        local unit = state.units[unitToken]
+        return unit ~= nil and unit.hostile == true
+    end)
+    unitAnswer("UnitIsDead", function(unit) return unit ~= nil and unit.dead == true end)
+    unitAnswer("UnitPlayerControlled", function(unit) return unit ~= nil and (unit.player == true or unit.playerPet == true) end)
+    if state.hit ~= false then
+        local function hitAnswer(name, read)
+            global(name, function(...)
+                if state.secretAnswers[name] or state.secretAnswers.hit then
+                    return Mock.SECRET
+                end
+                return read(type(state.hit) == "table" and state.hit or {}, ...)
+            end)
+        end
+        hitAnswer("GetCombatRatingBonus", function(hit, index) return type(hit.rating) == "table" and hit.rating[index] or 0 end)
+        hitAnswer("GetHitModifier", function(hit) return hit.melee or 0 end)
+        hitAnswer("GetRangedHitModifier", function(hit) return hit.ranged or 0 end)
+        hitAnswer("GetSpellHitModifier", function(hit) return hit.spell end) -- nothing at all with no spell hit: seen on older clients
+    end
+    -- expertise, as the character sheet reads it: per cent off the enemy's dodge (main hand, off hand, ranged)
+    global("GetExpertise", function()
+        if state.secretAnswers.GetExpertise then
+            return Mock.SECRET, Mock.SECRET, Mock.SECRET
+        end
+        return state.expertise or 0, state.expertise or 0, 0
+    end)
+    global("IsDualWielding", function() return state.dualWield end)
+    global("GetShapeshiftForm", function() return state.form end)
+    global("GetInventoryItemID", function(_, slot) return state.equipped[slot] end)
+    -- Item level: state.itemKinds = { [itemID] = { class, subclass } } (2 weapon, 4 armor, 7 trade goods ...),
+    -- state.itemLevels = { [itemID or link] = level } as C_Item.GetDetailedItemLevelInfo answers,
+    -- state.itemInfoLevels = { [itemID] = level } as C_Item.GetItemInfo's fourth answer does
+    state.itemKinds, state.itemLevels, state.itemInfoLevels = {}, {}, {}
+    global("C_Item", {
+        GetItemInfoInstant = function(itemID) -- id, type, subtype, equip location, icon, class, subclass
+            if state.secretAnswers.GetItemInfoInstant then
+                return Mock.SECRET, Mock.SECRET, Mock.SECRET, Mock.SECRET, Mock.SECRET, Mock.SECRET, Mock.SECRET
+            end
+            local kind = state.itemKinds[itemID]
+            if kind then
+                return itemID, "Kind", "Kind", "", 1, kind[1], kind[2]
+            end
+            local subclass = state.weapons[itemID]
+            if subclass == nil then
+                return itemID, "Armor", "Shields", "INVTYPE_SHIELD", 1, 4, 6
+            end
+            return itemID, "Weapon", "Weapon", "INVTYPE_WEAPON", 1, 2, subclass
+        end,
+        GetDetailedItemLevelInfo = function(item) -- actual level, preview?, the level in the item table
+            if state.secretAnswers.GetDetailedItemLevelInfo then
+                return Mock.SECRET, Mock.SECRET, Mock.SECRET
+            end
+            local level = state.itemLevels[item]
+            if level then
+                return level, false, level
+            end
+        end,
+        GetItemInfo = function(itemID) -- name, link, quality, level, ...
+            local level = state.itemInfoLevels[itemID]
+            if level then
+                return "Item " .. itemID, "|Hitem:" .. itemID .. "|h[Item]|h", 2, level, 1
+            end
+        end,
+    })
+    global("C_SkillInfo", {
+        GetSkillLineInfoByID = function(skillID)
+            local skill = state.skills[skillID]
+            if skill == Mock.SECRET then
+                return { skillID = skillID, rank = Mock.SECRET, modifier = Mock.SECRET, maxRank = Mock.SECRET }
+            end
+            return skill and { skillID = skillID, rank = skill.rank, modifier = skill.modifier or 0, maxRank = 300 } or nil
+        end,
+    })
+
     global("RAID_CLASS_COLORS", {
         ROGUE = { r = 1.00, g = 0.96, b = 0.41 }, SHAMAN = { r = 0.00, g = 0.44, b = 0.87 }, MAGE = { r = 0.25, g = 0.78, b = 0.92 },
     })
@@ -494,7 +581,14 @@ function Mock.install(options)
             })
         end
         -- the character's level, and the game's highest
-        global("UnitLevel", function(unit) return unit == "player" and (state.level or 30) or 0 end)
+        global("UnitLevel", function(unit)
+            if unit == "player" then
+                return state.level or 30
+            elseif state.secretAnswers.UnitLevel then
+                return Mock.SECRET
+            end
+            return state.units[unit] and state.units[unit].level or 0 -- -1: a skull
+        end)
         global("GetMaxLevelForPlayerExpansion", function() return 60 end)
         -- an item's Use spell, and the words of a spell as the client resolves them for this character
         state.itemSpells = state.itemSpells or {}        -- [itemID] = { name, spellID }
@@ -611,10 +705,10 @@ function Mock.install(options)
             end
         end
 
-        function Mock.showItemTooltip(id, tooltip)
+        function Mock.showItemTooltip(id, tooltip, link)
             tooltip = tooltip or G.GameTooltip
             for _, fn in ipairs(postCalls[G.Enum.TooltipDataType.Item] or {}) do
-                fn(tooltip, { type = G.Enum.TooltipDataType.Item, id = id })
+                fn(tooltip, { type = G.Enum.TooltipDataType.Item, id = id, hyperlink = link })
             end
         end
 

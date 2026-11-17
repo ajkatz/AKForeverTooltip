@@ -67,6 +67,7 @@ function Diagnostics:Collect()
             critTalents = (ns.Spell.CritTalents() and ns.Spell.critTalents) } or nil,
         counts = ns.Counts and { stats = ns.Counts.stats, bankOpen = ns.Counts.bankOpen,
             accountBank = type(ns.db) == "table" and ns.db.accountBank ~= nil } or nil,
+        hit = ns.Hit and { stats = ns.Hit.stats, last = ns.Hit.last } or nil,
         samples = ns.Tooltip.samples,
         client = {
             setAnchorType = type(tooltip) == "table" and type(tooltip.SetAnchorType),

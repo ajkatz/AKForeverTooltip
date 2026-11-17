@@ -536,6 +536,302 @@ scenario("your own pet's mood, and only your own pet's", function()
     check(not textsOf():find("happy", 1, true))
 end)
 
+-- YOUR CHANCE TO HIT an enemy mob ------------------------------------------------------------------
+local function hitLine()
+    for _, line in ipairs(GameTooltip.__lines or {}) do
+        local text = tostring(line.text)
+        if text:find("Hit chance", 1, true) then
+            return text
+        end
+    end
+    return nil
+end
+
+local function fighter(options, class, level)
+    local ns, state = start(options)
+    state.units.player = { name = "Purrdee", player = true, class = class or "SHAMAN" }
+    state.level = level or 60
+    return ns, state
+end
+
+-- mouse over a hostile mob of that level; the hit chance line, or nil
+local function mob(state, level, extra)
+    local unit = { name = "Defias Thug", player = false, hostile = true, level = level }
+    for key, value in pairs(extra or {}) do
+        unit[key] = value
+    end
+    state.units.thug = unit
+    GameTooltip.__lines = nil
+    Mock.showUnitTooltip("thug")
+    return hitLine()
+end
+
+scenario("hit chance on an enemy mob: Blizzard's own miss table for a mob up to three levels over you, your hit added on, never past the cap", function()
+    local ns, state = fighter()
+    state.equipped[16], state.weapons[1001], state.skills[54] = 1001, 4, { rank = 300 } -- a mace, skill at the level's top
+    equal(mob(state, 60), "Hit chance: melee 95%, spell 96%")
+    equal(mob(state, 61), "Hit chance: melee 94.8%, spell 95%")
+    equal(mob(state, 62), "Hit chance: melee 94.6%, spell 94%")
+    equal(mob(state, 63), "Hit chance: melee 91%, spell 83%")
+    -- the character sheet's Hit Chance: the rating's bonus plus the modifier, each kind its own
+    state.hit = { rating = { [6] = 1, [8] = 2 }, melee = 2, spell = 3 }
+    equal(mob(state, 63), "Hit chance: melee 94%, spell 88%")
+    -- more hit than there is to miss: a swing then never misses, a spell always can
+    state.hit = { melee = 12, spell = 30 }
+    equal(mob(state, 63), "Hit chance: melee 100%, spell 99%")
+    equal(ns.Hit.stats.lines, 6)
+    equal(ns.Hit.stats.skillAssumed, 0)
+
+    -- the sums on their own
+    near(ns.Hit.MeleeMiss(60, 300), 5.0, 0.0001, "melee, same level")
+    near(ns.Hit.MeleeMiss(61, 300), 5.2, 0.0001, "melee, +1")
+    near(ns.Hit.MeleeMiss(62, 300), 5.4, 0.0001, "melee, +2")
+    near(ns.Hit.MeleeMiss(63, 300), 9.0, 0.0001, "melee, +3")
+    near(ns.Hit.MeleeMiss(1, 300), 0, 0.0001, "melee: never below nothing")
+    near(ns.Hit.SpellMiss(60, 60), 4, 0.0001, "spell, same level")
+    near(ns.Hit.SpellMiss(60, 62), 6, 0.0001, "spell, +2")
+    near(ns.Hit.SpellMiss(60, 63), 17, 0.0001, "spell, +3")
+    near(ns.Hit.SpellMiss(60, 40), 1, 0.0001, "spell: one in a hundred always misses")
+    near(ns.Hit.Chance(9, 3), 94, 0.0001)
+    near(ns.Hit.Chance(17, 30, 99), 99, 0.0001)
+    near(ns.Hit.Chance(120, 0), 0, 0.0001)
+    near(ns.Hit.Chance(5, 0, 99), 95, 0.0001)
+end)
+
+scenario("a mob far over or under you: the Classic rules past Blizzard's table, marked ~ over it; a skull is a boss at the top level and says nothing below it; no level, no line", function()
+    local ns, state = fighter(nil, "SHAMAN", 30)
+    equal(mob(state, 34), "Hit chance: melee ~90%, spell ~72%")
+    equal(mob(state, 35), "Hit chance: melee ~89%, spell ~61%")
+    equal(mob(state, 39), "Hit chance: melee ~85%, spell ~17%")
+    equal(mob(state, 28), "Hit chance: melee 95.4%, spell 98%")
+    equal(mob(state, 25), "Hit chance: melee 96%, spell 99%")
+    equal(ns.Hit.stats.skillAssumed, 5) -- no weapon skill told: the level's worth stands in, and the report says so
+
+    equal(mob(state, -1), nil) -- a skull at 30: ten levels or more, how many nobody says
+    equal(ns.Hit.stats.skulls, 1)
+    state.level = 60
+    equal(mob(state, -1), "Hit chance on a boss: melee 91%, spell 83%")
+
+    equal(mob(state, 0), nil)
+    state.secretAnswers.UnitLevel = true
+    equal(mob(state, 63), nil)
+    equal(ns.Hit.stats.noLevel, 2)
+end)
+
+scenario("the kinds your character uses: melee for a warrior or a rogue, spells for a mage, priest or warlock, ranged for a hunter (the bow's skill, the ranged hit), melee and spells for a hybrid or a class nobody listed", function()
+    local ns, state = fighter(nil, "WARRIOR")
+    state.hit = { melee = 1, ranged = 2, spell = 3 }
+    equal(mob(state, 63), "Hit chance: melee 92%")
+    state.units.player.class = "ROGUE"
+    equal(mob(state, 63), "Hit chance: melee 92%")
+    for _, class in ipairs({ "MAGE", "PRIEST", "WARLOCK" }) do
+        state.units.player.class = class
+        equal(mob(state, 63), "Hit chance: spell 86%", class)
+    end
+    for _, class in ipairs({ "SHAMAN", "PALADIN", "DRUID", "MONK" }) do
+        state.units.player.class = class
+        equal(mob(state, 63), "Hit chance: melee 92%, spell 86%", class)
+    end
+
+    state.units.player.class = "HUNTER"
+    equal(mob(state, 63), nil) -- nothing to shoot with: no number to give
+    state.equipped[18], state.weapons[2001], state.skills[45] = 2001, 2, { rank = 290 } -- a bow, ten short
+    equal(mob(state, 63), "Hit chance: ranged 91%") -- 315 against 290: 11% to miss, 2 of it taken back
+    state.skills[45] = { rank = 300 }
+    equal(mob(state, 63), "Hit chance: ranged 93%")
+    state.weapons[2001] = 18 -- a crossbow has its own skill
+    state.skills[226] = { rank = 300, modifier = 5 }
+    equal(mob(state, 63), "Hit chance: ranged 96.6%")
+end)
+
+scenario("weapon skill: short of the mob's defence you miss more, over it less - the skill of what is in your hand, bare fists with nothing, the form's for a druid in one; a skill nobody tells counts as your level's worth", function()
+    local ns, state = fighter(nil, "WARRIOR", 30)
+    state.equipped[16], state.weapons[1001] = 1001, 4 -- a one-handed mace
+    state.skills[54] = { rank = 100 }
+    equal(mob(state, 30), "Hit chance: melee 84%") -- 150 against 100
+    state.skills[54] = { rank = 145, modifier = 5 }
+    equal(mob(state, 30), "Hit chance: melee 95%")
+    equal(ns.Hit.last.melee.skill, 150)
+
+    state.equipped[16] = nil -- bare fists
+    state.skills[162] = { rank = 1 }
+    equal(mob(state, 30), "Hit chance: melee 64.2%")
+
+    state.level = 60
+    state.equipped[16], state.weapons[1002] = 1002, 7 -- a sword, and a race that is good with them
+    state.skills[43] = { rank = 300, modifier = 5 }
+    equal(mob(state, 63), "Hit chance: melee 94.6%")
+    equal(mob(state, 60), "Hit chance: melee 95.2%")
+
+    state.units.player.class = "DRUID"
+    state.skills[43] = { rank = 1 }
+    state.form, state.skills[3014] = 1, { rank = 300 }
+    equal(mob(state, 60), "Hit chance: melee 95%, spell 96%")
+    state.form = 0
+    equal(mob(state, 60), "Hit chance: melee 34.2%, spell 96%") -- out of the form it is the sword's skill again
+    equal(ns.Hit.last.melee.skill, 1)
+
+    equal(ns.Hit.stats.skillAssumed, 0)
+    state.skills[43] = Mock.SECRET -- a skill the client keeps to itself
+    equal(mob(state, 60), "Hit chance: melee 95%, spell 96%")
+    state.weapons[1002] = 20 -- a fishing pole: no weapon skill goes with it
+    equal(mob(state, 60), "Hit chance: melee 95%, spell 96%")
+    state.equipped[16] = 1003 -- something in the hand that is no weapon at all
+    equal(mob(state, 60), "Hit chance: melee 95%, spell 96%")
+    equal(ns.Hit.stats.skillAssumed, 3)
+end)
+
+scenario("two weapons: abilities first, swings in brackets with the 19% dual wield penalty; hit takes from both; one number when they are the same", function()
+    local ns, state = fighter(nil, "ROGUE")
+    state.dualWield = true
+    equal(mob(state, 60), "Hit chance: melee 95% (swings 76%)")
+    state.hit = { melee = 6 }
+    equal(mob(state, 63), "Hit chance: melee 97% (swings 78%)")
+    state.hit = { melee = 30 }
+    equal(mob(state, 63), "Hit chance: melee 100%")
+    state.hit = nil
+    state.units.player.class = "SHAMAN"
+    equal(mob(state, 60), "Hit chance: melee 95% (swings 76%), spell 96%")
+    state.dualWield = false
+    equal(mob(state, 60), "Hit chance: melee 95%, spell 96%")
+    IsDualWielding = nil -- a client without the question: one number
+    equal(mob(state, 60), "Hit chance: melee 95%, spell 96%")
+end)
+
+scenario("only on an enemy mob you can attack: not a player, a friendly one, a corpse or somebody's pet; /ftt lines hitchance off drops it", function()
+    local ns, state = fighter()
+    equal(mob(state, 60), "Hit chance: melee 95%, spell 96%")
+
+    state.units.rogue.hostile, state.units.rogue.level = true, 60 -- an enemy PLAYER: other rules, no line
+    GameTooltip.__lines = nil
+    Mock.showUnitTooltip("rogue")
+    equal(hitLine(), nil)
+    state.secretAnswers.UnitPlayerControlled = true -- ... also when the client will not say who steers them
+    GameTooltip.__lines = nil
+    Mock.showUnitTooltip("rogue")
+    equal(hitLine(), nil)
+    state.secretAnswers.UnitPlayerControlled = nil
+
+    state.units.boar.level = 60 -- cannot be attacked
+    GameTooltip.__lines = nil
+    Mock.showUnitTooltip("boar")
+    equal(hitLine(), nil)
+
+    equal(mob(state, 60, { dead = true }), nil)
+    equal(mob(state, 60, { playerPet = true }), nil)
+    state.secretAnswers.UnitCanAttack = true -- the client will not say whose side it is on
+    equal(mob(state, 60), nil)
+    state.secretAnswers.UnitCanAttack = nil
+
+    SlashCmdList.AKFOREVERTOOLTIP("lines hitchance off")
+    equal(mob(state, 60), nil)
+    SlashCmdList.AKFOREVERTOOLTIP("lines hitchance on")
+    equal(mob(state, 60), "Hit chance: melee 95%, spell 96%")
+    equal(ns.Hit.stats.lines, 2)
+end)
+
+-- the line under the hit chance: what the mob does to a swing that would have hit
+local function avoidLine()
+    for _, line in ipairs(GameTooltip.__lines or {}) do
+        local text = tostring(line.text)
+        if text:find("Dodged", 1, true) then
+            return text
+        end
+    end
+    return nil
+end
+
+scenario("under the hit chance, what the mob does to your melee: dodged (Blizzard's own table), and from the front parried and blocked - by its level against your weapon skill, your expertise taken off", function()
+    local ns, state = fighter()
+    state.equipped[16], state.weapons[1001], state.skills[54] = 1001, 4, { rank = 300 }
+    mob(state, 60); equal(avoidLine(), "Dodged 5%; from the front parried 5%, blocked up to 5%")
+    mob(state, 61); equal(avoidLine(), "Dodged 5.5%; from the front parried 5.5%, blocked up to 5%")
+    mob(state, 62); equal(avoidLine(), "Dodged 6%; from the front parried 6%, blocked up to 5%")
+    mob(state, 63); equal(avoidLine(), "Dodged 6.5%; from the front parried 14%, blocked up to 5%")
+    mob(state, -1); equal(avoidLine(), "Dodged 6.5%; from the front parried 14%, blocked up to 5%") -- a skull at the top level: a boss
+    equal(ns.Hit.stats.avoidLines, 5)
+
+    -- a skill over the mob's defence takes from all three; one short of it adds to dodge and parry, never to block
+    state.skills[54] = { rank = 300, modifier = 5 }
+    mob(state, 60); equal(avoidLine(), "Dodged 4.5%; from the front parried 4.5%, blocked up to 4.5%")
+    mob(state, 63); equal(avoidLine(), "Dodged 6%; from the front parried 14%, blocked up to 5%")
+    state.level, state.skills[54] = 30, { rank = 100 }
+    mob(state, 30); equal(avoidLine(), "Dodged 10%; from the front parried 10%, blocked up to 5%")
+    -- over Blizzard's table the numbers carry the same ~ as the hit chance
+    state.skills[54] = { rank = 150 }
+    mob(state, 35); equal(avoidLine(), "Dodged ~7.5%; from the front parried ~14%, blocked up to ~5%")
+
+    -- expertise comes off the dodge; only what is left over after the dodge is gone comes off the parry
+    state.level, state.skills[54] = 60, { rank = 300 }
+    state.expertise = 2
+    mob(state, 63); equal(avoidLine(), "Dodged 4.5%; from the front parried 14%, blocked up to 5%")
+    state.expertise = 8
+    mob(state, 63); equal(avoidLine(), "Dodged 0%; from the front parried 12.5%, blocked up to 5%")
+    equal(ns.Hit.last.avoid.expertise, 8)
+
+    -- the sums on their own
+    equal(ns.Hit.Dodge(63, 300), 6.5); equal(ns.Hit.Dodge(1, 300), 0)
+    equal(ns.Hit.Parry(60, 62, 300), 6); equal(ns.Hit.Parry(60, 63, 300), 14); equal(ns.Hit.Parry(60, 66, 300), 14)
+    equal(ns.Hit.Block(63, 300), 5); equal(ns.Hit.Block(60, 310), 4); equal(ns.Hit.Block(1, 300), 0)
+end)
+
+scenario("no dodge line where there is no melee number: a caster, a hunter, hit the client never told; expertise it keeps to itself stands as last told, and with none told the line stays away; /ftt lines avoidance off drops it", function()
+    local ns, state = fighter(nil, "MAGE")
+    mob(state, 63); equal(avoidLine(), nil)
+    state.units.player.class = "HUNTER"
+    state.equipped[18], state.weapons[2001], state.skills[45] = 2001, 2, { rank = 300 }
+    check(mob(state, 63)); equal(avoidLine(), nil)
+
+    state.units.player.class = "WARRIOR"
+    state.expertise = 1
+    mob(state, 63); equal(avoidLine(), "Dodged 5.5%; from the front parried 14%, blocked up to 5%")
+    state.secretAnswers.GetExpertise = true
+    mob(state, 63); equal(avoidLine(), "Dodged 5.5%; from the front parried 14%, blocked up to 5%")
+    SlashCmdList.AKFOREVERTOOLTIP("lines avoidance off")
+    check(mob(state, 63)); equal(avoidLine(), nil)
+    SlashCmdList.AKFOREVERTOOLTIP("lines avoidance on")
+    mob(state, 63); check(avoidLine())
+    -- the hit chance line off takes this one with it
+    SlashCmdList.AKFOREVERTOOLTIP("lines hitchance off")
+    equal(mob(state, 63), nil); equal(avoidLine(), nil)
+
+    ns, state = fighter(nil, "WARRIOR") -- a session in which expertise was never told
+    state.secretAnswers.GetExpertise = true
+    check(mob(state, 63)); equal(avoidLine(), nil)
+    state.secretAnswers.GetExpertise = nil
+    GetExpertise = nil -- a client without expertise at all: none to take off
+    mob(state, 63); equal(avoidLine(), "Dodged 6.5%; from the front parried 14%, blocked up to 5%")
+
+    ns, state = fighter(nil, "WARRIOR")
+    state.secretAnswers.hit = true -- no melee number, so nothing under it
+    equal(mob(state, 63), nil); equal(avoidLine(), nil)
+end)
+
+scenario("hit the client keeps to itself (a fight): the last answer it gave stands; with none there is no number for that kind; a client without the calls says nothing; never a sum on a secret", function()
+    local ns, state = fighter()
+    state.hit = { melee = 2, spell = 4 }
+    equal(mob(state, 63), "Hit chance: melee 93%, spell 87%")
+    state.secretAnswers.hit = true
+    equal(mob(state, 63), "Hit chance: melee 93%, spell 87%")
+    equal(ns.Hit.stats.remembered, 2)
+    local report = ns.Diagnostics:Collect()
+    equal(report.hit.stats.lines, 2)
+    equal(report.hit.last.mob, 63)
+    equal(report.hit.last.spell.hit, 4)
+
+    ns, state = fighter() -- a session that began in the fight
+    state.secretAnswers.hit = true
+    equal(mob(state, 63), nil)
+    equal(ns.Hit.stats.noHit, 1)
+    state.secretAnswers.hit = nil
+    state.secretAnswers.GetSpellHitModifier = true -- one kind told, the other not
+    equal(mob(state, 63), "Hit chance: melee 91%")
+
+    ns, state = fighter({ hit = false })
+    equal(mob(state, 63), nil)
+    equal(ns.Hit.stats.noHit, 1)
+end)
+
 scenario("the id on a spell and on an item, and never on a unit", function()
     local ns, state = start()
     Mock.showSpellTooltip(2643)
@@ -550,6 +846,57 @@ scenario("the id on a spell and on an item, and never on a unit", function()
     GameTooltip.__lines = nil
     Mock.showSpellTooltip(2643)
     check(not textsOf():find("spell", 1, true), textsOf())
+end)
+
+scenario("the item level on a weapon or a piece of armor, above the addon's other lines - not on anything else; the tooltip's own link first; silence when the client will not say; /ftt lines ilvl off drops it", function()
+    local ns, state = start()
+    local function show(id, link)
+        GameTooltip.__lines = nil
+        Mock.showItemTooltip(id, nil, link)
+        return textsOf()
+    end
+    state.itemKinds[1001], state.itemLevels[1001] = { 2, 7 }, 45   -- a sword
+    state.itemKinds[2001], state.itemLevels[2001] = { 4, 1 }, 33   -- cloth armor
+    state.itemKinds[2589], state.itemLevels[2589] = { 7, 5 }, 5    -- linen cloth: a trade good
+    state.itemKinds[858], state.itemLevels[858] = { 0, 1 }, 15     -- a potion
+    equal(show(1001), "Item level 45 | item 1001")
+    equal(show(2001), "Item level 33 | item 2001")
+    equal(show(2589), "item 2589")
+    equal(show(858), "item 858")
+    equal(ns.Tooltip.stats.itemLevelLines, 2)
+
+    -- the very item the tooltip shows, where its link is given: that one's level
+    state.itemLevels["|Hitem:1001::::::1234|h[Sword of the Bear]|h"] = 47
+    equal(show(1001, "|Hitem:1001::::::1234|h[Sword of the Bear]|h"), "Item level 47 | item 1001")
+    equal(show(1001, "|Hitem:1001::::::999|h[Sword of the Whale]|h"), "Item level 45 | item 1001") -- a link the client knows no level for: the item's own
+    equal(show(1001, Mock.SECRET), "Item level 45 | item 1001")
+
+    -- a client that only tells the level with the item's other facts
+    state.itemLevels[1001], state.itemInfoLevels[1001] = nil, 44
+    equal(show(1001), "Item level 44 | item 1001")
+    C_Item.GetDetailedItemLevelInfo = nil
+    equal(show(1001), "Item level 44 | item 1001")
+
+    -- no level told, a level of nothing, a secret, a kind the client keeps to itself: no line
+    state.itemInfoLevels[1001] = nil
+    equal(show(1001), "item 1001")
+    state.itemInfoLevels[1001] = 0
+    equal(show(1001), "item 1001")
+    state.itemInfoLevels[1001] = 44
+    state.secretAnswers.GetItemInfoInstant = true
+    equal(show(1001), "item 1001")
+    state.secretAnswers.GetItemInfoInstant = nil
+
+    -- another tooltip that shows an item gets it too
+    state.itemInfoLevels[2001] = 33 -- (the detailed call is gone from this client by now)
+    ItemRefTooltip.__lines = nil
+    Mock.showItemTooltip(2001, ItemRefTooltip)
+    equal(textsOf(ItemRefTooltip), "Item level 33") -- (the id line is the main tooltip's alone)
+
+    SlashCmdList.AKFOREVERTOOLTIP("lines ilvl off")
+    equal(show(2001), "item 2001")
+    SlashCmdList.AKFOREVERTOOLTIP("lines ilvl on")
+    equal(show(2001), "Item level 33 | item 2001")
 end)
 
 scenario("a spell's words and its mana: damage per mana, heal per mana - ranges by their middle, over time in full, ticks counted; yards, seconds, percentages and absorbs are no amounts", function()

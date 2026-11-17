@@ -38,6 +38,9 @@ Every line can be switched off, and every one stays silent rather than guessing 
 - **Damage and healing per mana** on your spells - "Damage per mana: 0.84 (21 / 25 mana)" on a Frostbolt,
   "Heal per mana: 1.75" on a Lesser Heal - from the spell's own words and its cost - with a row for a normal hit and
   one for a crit, on #showtooltip macros too.
+- **Your chance to hit an enemy mob** - "Hit chance: melee 94.6% (swings 75.6%), spell 94%", from its level, yours, your weapon
+  skill and your hit - and under it what the mob does to a swing: "Dodged 6.5%; from the front parried 14%, blocked up to 5%".
+- **Item level** on weapons and armor, comparison tooltips and chat links included.
 - **Your own pet's mood**, and the spell or item id.
 
 ### Commands
