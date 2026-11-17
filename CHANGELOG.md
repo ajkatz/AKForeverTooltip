@@ -1,6 +1,6 @@
 # AKForeverTooltip
 
-## Unreleased
+## 0.2.8
 
 - **Your chance to hit an enemy mob**, on its tooltip: "Hit chance: melee 94.6%, spell 94%" - worked out from
   the mob's level, yours, your weapon skill and the Hit Chance on your character sheet. You get the kinds your
