@@ -1,6 +1,6 @@
 # AKForeverTooltip
 
-## Unreleased
+## 0.2.7
 
 - **A macro for a lower rank shows that rank's numbers.** On a `#showtooltip` macro that casts a lower rank
   (Chain Heal Rank 1), the per-mana, per-second, Hit and Crit lines were those of the highest rank you know:
