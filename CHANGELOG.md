@@ -1,5 +1,13 @@
 # AKForeverTooltip
 
+## Unreleased
+
+- **A macro for a lower rank shows that rank's numbers.** On a `#showtooltip` macro that casts a lower rank
+  (Chain Heal Rank 1), the per-mana, per-second, Hit and Crit lines were those of the highest rank you know:
+  the spell was found by its name, and a name finds the top rank. On a macro's tooltip the lines are now
+  worked out from what the tooltip itself shows - its mana cost, its words, its cast time - so they are the
+  rank the macro casts. `/ftt diag` keeps the rank the tooltip named (`spell.lastMacro.rank`).
+
 ## 0.2.6
 
 - **How many you have, on every character.** An item's tooltip lists each of your characters on the realm

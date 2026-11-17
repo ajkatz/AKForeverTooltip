@@ -90,8 +90,23 @@ local function spellInfoName(id)
     return answer and type(answer[1]) == "string" and answer[1] or nil
 end
 
--- the mana the spell costs, or nil
-function Spell.ManaCost(id, lines)
+-- the tooltip's own cost line: "35 Mana"
+local function costLine(lines)
+    for _, text in ipairs(textsOf(lines)) do
+        local cost = number(string.match(text, "^%s*([%d,]+) Mana%s*$"))
+        if cost and cost > 0 then
+            return cost
+        end
+    end
+    return nil
+end
+
+-- the mana the spell costs, or nil. `own`: the tooltip's own line first (a macro's tooltip - see Macros)
+function Spell.ManaCost(id, lines, own)
+    local named = own and costLine(lines)
+    if named then
+        return named
+    end
     local costs = type(C_Spell) == "table" and ns.Readable(C_Spell.GetSpellPowerCost, id)
     costs = costs and costs[1]
     if type(costs) == "table" then
@@ -102,14 +117,7 @@ function Spell.ManaCost(id, lines)
             end
         end
     end
-    -- the tooltip's own cost line: "35 Mana"
-    for _, text in ipairs(textsOf(lines)) do
-        local cost = number(string.match(text, "^%s*([%d,]+) Mana%s*$"))
-        if cost and cost > 0 then
-            return cost
-        end
-    end
-    return nil
+    return costLine(lines)
 end
 
 -- after an amount, how many times it lands: "each second for 3 sec", "every 2 sec for 10 sec",
@@ -381,8 +389,9 @@ local function hasteFactor()
     return 1 + haste / 100
 end
 
--- the seconds one cast takes and what they are ("cast", "channel", "GCD"), or nil
-function Spell.CastSeconds(id, lines, text)
+-- the seconds one cast takes and what they are ("cast", "channel", "GCD"), or nil. `own`: the tooltip's
+-- own "3 sec cast" / "Instant" first (a macro's tooltip - see Macros)
+function Spell.CastSeconds(id, lines, text, own)
     local texts = textsOf(lines)
     for _, t in ipairs(texts) do
         if t == "Channeled" or t == "Channeled (Interruptible)" then
@@ -392,23 +401,32 @@ function Spell.CastSeconds(id, lines, text)
             return duration and duration > 0 and duration or nil, "channel"
         end
     end
-    local info = type(C_Spell) == "table" and type(C_Spell.GetSpellInfo) == "function" and ns.Readable(C_Spell.GetSpellInfo, id)
-    info = info and info[1]
-    local castTime = type(info) == "table" and info.castTime
-    if type(castTime) == "number" and castTime > 0 then
-        return castTime / 1000, "cast"
-    end
-    local instant = type(castTime) == "number" and castTime == 0
+    local lineCast, lineInstant
     for _, t in ipairs(texts) do
         local cast = tonumber(string.match(t, "^%s*(%d+%.?%d*) sec cast"))
         if cast and cast > 0 then
-            return cast, "cast"
+            lineCast = lineCast or cast
         end
         if t == "Instant" or t == "Instant cast" then
-            instant = true
+            lineInstant = true
         end
     end
-    if instant then
+    if own and lineCast then
+        return lineCast, "cast"
+    end
+    local castTime
+    if not (own and lineInstant) then
+        local info = type(C_Spell) == "table" and type(C_Spell.GetSpellInfo) == "function" and ns.Readable(C_Spell.GetSpellInfo, id)
+        info = info and info[1]
+        castTime = type(info) == "table" and info.castTime
+    end
+    if type(castTime) == "number" and castTime > 0 then
+        return castTime / 1000, "cast"
+    end
+    if lineCast then
+        return lineCast, "cast"
+    end
+    if lineInstant or (type(castTime) == "number" and castTime == 0) then
         return math.max(GCD / hasteFactor(), GCD_FLOOR), "GCD"
     end
     return nil
@@ -633,13 +651,13 @@ end
 -- way (the user, 2026-11-13: "do healing spells also have the same thing" ... "hots do crit").
 local PER_SECOND = { damage = "Damage per second", heal = "Heal per second" }
 
-function Spell.EffectiveLine(id, lines, text, totals, kind)
+function Spell.EffectiveLine(id, lines, text, totals, kind, own)
     kind = kind or "damage"
     local d = totals.detail and totals.detail[kind]
     if not d then
         return nil
     end
-    local castSeconds, what = Spell.CastSeconds(id, lines, text)
+    local castSeconds, what = Spell.CastSeconds(id, lines, text, own)
     if not castSeconds then
         return nil
     end
@@ -666,22 +684,40 @@ function Spell.EffectiveLine(id, lines, text, totals, kind)
     return string.format("%s: %.1f", PER_SECOND[kind], amount / castSeconds), directSize, overSize
 end
 
--- the lines for one spell: { { text, r, g, b }, ... } or nil
-function Spell.Lines(id, lines)
+-- the longest readable line of the tooltip: its description, when it has one
+local function longestOf(lines)
+    local longest
+    for _, t in ipairs(textsOf(lines)) do
+        if not longest or #t > #longest then
+            longest = t
+        end
+    end
+    return longest
+end
+
+-- the lines for one spell: { { text, r, g, b }, ... } or nil; then where the words came from ("lines" /
+-- "spell"). `own`: what the tooltip itself says comes first - its cost line, its words, its cast time -
+-- and the client is asked by id only for what the tooltip leaves out (a macro's tooltip - see Macros)
+function Spell.Lines(id, lines, own)
     local auto = autoKind(id, lines)
     if auto then
         return ns:GetOption("hitRows") ~= false and Spell.AutoLines(auto) or nil
     end
-    local cost = Spell.ManaCost(id, lines)
+    local cost = Spell.ManaCost(id, lines, own)
     if not cost then
         Spell.stats.noCost = Spell.stats.noCost + 1
         miss(id, "no mana cost", nil, lines)
         return nil
     end
-    local text
-    local description = type(C_Spell) == "table" and ns.Readable(C_Spell.GetSpellDescription, id)
-    if description and type(description[1]) == "string" and description[1] ~= "" then
-        text = description[1]
+    local text, source
+    local longest = longestOf(lines)
+    if own and longest and Spell.Amounts(longest) then
+        text, source = longest, "lines"
+    else
+        local description = type(C_Spell) == "table" and ns.Readable(C_Spell.GetSpellDescription, id)
+        if description and type(description[1]) == "string" and description[1] ~= "" then
+            text, source = description[1], "spell"
+        end
     end
     -- totems: no line (the user, 2026-11-07: "maybe just take that off of totems in general") - what a
     -- totem does depends on how long it stands and what comes near it, not on one cast
@@ -694,12 +730,6 @@ function Spell.Lines(id, lines)
     local totals = text and Spell.Amounts(text)
     if not totals then
         -- the tooltip's own words: the longest readable line is the description
-        local longest
-        for _, t in ipairs(textsOf(lines)) do
-            if not longest or #t > #longest then
-                longest = t
-            end
-        end
         totals = longest and Spell.Amounts(longest)
         text = text or longest
     end
@@ -719,7 +749,7 @@ function Spell.Lines(id, lines)
                 local d = totals.detail[kind]
                 local line, directSize, overSize
                 if ns:GetOption(kind == "heal" and "hps" or "dps") ~= false then
-                    line, directSize, overSize = Spell.EffectiveLine(id, lines, text, totals, kind)
+                    line, directSize, overSize = Spell.EffectiveLine(id, lines, text, totals, kind, own)
                     if line then
                         out[#out + 1] = { line, c[1], c[2], c[3] }
                     end
@@ -741,10 +771,14 @@ function Spell.Lines(id, lines)
             end
         end
     end
-    return #out > 0 and out or nil
+    if #out == 0 then
+        return nil
+    end
+    return out, source
 end
 
-function Spell.Add(tooltip, data)
+-- `own` (a macro's tooltip only): see Spell.Lines. Returns where the words came from, when lines were added.
+function Spell.Add(tooltip, data, own)
     if tooltip ~= GameTooltip or not ns:GetOption("efficiency") then
         return
     end
@@ -753,7 +787,7 @@ function Spell.Add(tooltip, data)
         return
     end
     Spell.stats.seen = Spell.stats.seen + 1
-    local lines = Spell.Lines(id, type(data.lines) == "table" and data.lines or nil)
+    local lines, words = Spell.Lines(id, type(data.lines) == "table" and data.lines or nil, own == true)
     if not lines then
         return
     end
@@ -763,6 +797,7 @@ function Spell.Add(tooltip, data)
         tooltip:AddLine(line[1], line[2], line[3], line[4])
         Spell.stats.lines = Spell.stats.lines + 1
     end
+    return words
 end
 
 ------------------------------------------------------------------------
@@ -779,6 +814,15 @@ end
 --   * a line that is a spell's name.
 -- When the lines say nothing readable, the first candidate stands. Each route's answer is kept for the
 -- report (Spell.lastMacro).
+--
+-- A LOWER RANK (the user, 2026-11-15: "when i have a macro for a downranked spell i'm still seeing the
+-- tooltip information for the highest rank available"). The report of that evening: the tooltip's lines
+-- were "Chain Heal", "Rank 1", "255 Mana", "40 yd range" - the client shows the rank the macro casts - but
+-- no button slot and no macro index answered, so the spell came by its name, and a name finds the highest
+-- rank you know: the lines were that rank's. So on a macro's tooltip what the tooltip itself says comes
+-- first - its "255 Mana", its words, its "2.5 sec cast" - and the spell found is asked only for what the
+-- tooltip leaves out. No rank is looked up: the tooltip's own lines are the rank. The report keeps the rank
+-- the tooltip named and where the words came from (lastMacro.rank, lastMacro.words).
 local function call(name, ...)
     local answer = ns.Readable(_G[name], ...)
     return answer and answer[1], answer and answer[2], answer and answer[3]
@@ -897,5 +941,14 @@ function Spell.AddMacro(tooltip, data)
         return
     end
     Spell.stats.macroSpells = Spell.stats.macroSpells + 1
-    Spell.Add(tooltip, { id = spellID, lines = type(data) == "table" and data.lines or nil })
+    local lines = type(data) == "table" and data.lines or nil
+    local trace = Spell.lastMacro
+    for _, t in ipairs(textsOf(lines)) do
+        local rank = tonumber(string.match(t, "^Rank (%d+)$"))
+        if rank then
+            trace.rank = rank
+            break
+        end
+    end
+    trace.words = Spell.Add(tooltip, { id = spellID, lines = lines }, true)
 end

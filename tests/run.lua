@@ -1110,6 +1110,57 @@ scenario("a #showtooltip macro on a button: its own kind of tooltip - the spell 
     equal(next(ns.errors), nil, "no errors")
 end)
 
+scenario("a #showtooltip macro for a lower rank: the lines follow the rank the tooltip shows - its mana, its words, its cast time - not the highest rank the spell's name finds", function()
+    local ns, state = start()
+    state.spellCrit = 0
+    -- the name finds the highest rank you know: Healing Wave rank 3
+    state.spellNames = { [913] = "Healing Wave" }
+    state.spellDescriptions[913] = "Heals a friendly target for 129 to 155."
+    state.spellCosts = { [913] = 80 }
+    state.castTimes = { [913] = 2500 }
+    -- the macro casts rank 1, and the client's tooltip says so (in game 2026-11-15: "Chain Heal", "Rank 1", "255 Mana")
+    local rank1 = { { leftText = "Healing Wave", rightText = "Rank 1" }, { leftText = "25 Mana", rightText = "40 yd range" },
+        { leftText = "1.5 sec cast" }, { leftText = "Heals a friendly target for 34 to 44." } }
+    Mock.showMacroTooltip({}, rank1, 11)
+    equal(ns.Spell.lastMacro.route, "name")
+    check(textsOf():find("Heal per mana: 1.56  (39 / 25 mana)", 1, true), "rank 1's heal for rank 1's mana: " .. textsOf())
+    check(textsOf():find("Hit: 34 to 44", 1, true), "rank 1's hit: " .. textsOf())
+    check(textsOf():find("Heal per second: 26.0 |", 1, true), "over rank 1's 1.5 sec cast: " .. textsOf())
+    check(not textsOf():find("129", 1, true) and not textsOf():find("80 mana", 1, true), "nothing of rank 3: " .. textsOf())
+    equal(ns.Spell.lastMacro.rank, 1, "the report keeps the rank the tooltip named")
+    equal(ns.Spell.lastMacro.words, "lines", "and that the tooltip's own words were read")
+    -- the same macro for the highest rank: the same lines as on the spell itself
+    local rank3 = { { leftText = "Healing Wave", rightText = "Rank 3" }, { leftText = "80 Mana", rightText = "40 yd range" },
+        { leftText = "2.5 sec cast" }, { leftText = "Heals a friendly target for 129 to 155." } }
+    GameTooltip.__lines = nil
+    Mock.showMacroTooltip({}, rank3, 11)
+    check(textsOf():find("Heal per mana: 1.77  (142 / 80 mana)", 1, true), textsOf())
+    check(textsOf():find("Heal per second: 56.8 |", 1, true), textsOf())
+    equal(ns.Spell.lastMacro.rank, 3)
+    -- a lower rank that is an instant where the highest has a cast time: the tooltip's "Instant" stands
+    local instant = { { leftText = "Healing Wave", rightText = "Rank 1" }, { leftText = "25 Mana" }, { leftText = "Instant" },
+        { leftText = "Heals a friendly target for 34 to 44." } }
+    GameTooltip.__lines = nil
+    Mock.showMacroTooltip({}, instant, 11)
+    check(textsOf():find("Heal per second: 26.0 |", 1, true), "an instant: the global cooldown, 1.5 sec: " .. textsOf())
+    -- a macro tooltip with nothing but the name: the spell the name finds, as before
+    GameTooltip.__lines = nil
+    Mock.showMacroTooltip({}, { { leftText = "Healing Wave" } }, 11)
+    check(textsOf():find("Heal per mana: 1.77  (142 / 80 mana)", 1, true), textsOf())
+    equal(ns.Spell.lastMacro.rank, nil)
+    equal(ns.Spell.lastMacro.words, "spell")
+    -- a cost line but no words in the lines: the cost the tooltip names, the words the spell's
+    GameTooltip.__lines = nil
+    Mock.showMacroTooltip({}, { { leftText = "Healing Wave" }, { leftText = "40 Mana" } }, 11)
+    check(textsOf():find("(142 / 40 mana)", 1, true), textsOf())
+    -- on the spell itself (the spellbook, a plain button) the client's answer for that very rank comes first, as ever
+    GameTooltip.__lines = nil
+    Mock.showSpellTooltip(913, nil, rank1)
+    check(textsOf():find("Heal per mana: 1.77  (142 / 80 mana)", 1, true), "a spell tooltip asks the client by id: " .. textsOf())
+    check(textsOf():find("Heal per second: 56.8 |", 1, true), textsOf())
+    equal(next(ns.errors), nil, "no errors")
+end)
+
 scenario("a camp object's tooltip says the buff it brings; an upgrade names the buff it keeps; a blueprint says what it teaches", function()
     local ns, state = start()
     -- a first-tier object: its buff, the most of it, the class buff it stands in for - each its own line
